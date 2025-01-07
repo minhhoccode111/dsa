@@ -1,5 +1,7 @@
 # Data Structures and Algorithms Specialization Coursera
 
+**Disclaimer**: The code is terrible and buggy, it has been a few months since I worked on it. Use at your own risk.
+
 [Data Structures and Algorithms Specialization](https://www.coursera.org/specializations/data-structures-algorithms)
 
 ## Course 1 - [Algorithmic Toolbox](https://www.coursera.org/learn/algorithmic-toolbox)
@@ -23,81 +25,82 @@
 - Advanced Dynamic Programming Lecture Notes. Jeff Erickson {5}
 - Algorithms on Strings, Trees and Sequences: Computer Science and Computational Biology (1st Edition). Dan Gusfield. {6}
 - Algorithm design (1st Edition). Addison-Wesley, Jon M. Kleinberg and Eva Tardos. {7}
-- [Learn Python In Y Minutes](https://learnxinyminutes.com/docs/python/)
-- [Discrete Mathematics Lecture notes by László Lovász, Yale University](https://cims.nyu.edu/~regev/teaching/discrete_math_fall_2005/dmbook.pdf)
+- [Learn Python In Y Minutes](https://learnxinyminutes.com/docs/python/) {8}
+- [Discrete Mathematics Lecture notes by László Lovász, Yale University](https://cims.nyu.edu/~regev/teaching/discrete_math_fall_2005/dmbook.pdf) {9}
 
 <details>
 <summary><strong>Reading List Chapters</strong></summary>
 
+- Course 0: Prerequisites
+  - {8}: Basic Python Programming
+  - {9}: Basic Discrete Mathematics
 - Course 1: Algorithmic Toolbox
-  - Week 0: Example
-    - {Num: ref above}: Section or Chapter of the document
   - Week 1: Intro
   - Week 2: Warm-up
-    - {1}: 0.2
-    - {1}: 1.2.3
-    - {2}: 31.1
-    - {1}: 0.3
+    - {1}: Section 0.2
+    - {1}: Section 1.2.3
+    - {2}: Section 31.1
+    - {1}: Section 0.3
   - Week 3: Greedy Algorithms
   - Week 4: Divide and Conquer
-    - {1}: 2.1
-    - {1}: 2.2
-    - {1}: 2.3
-    - {2}: 7
+    - {1}: Section 2.1
+    - {1}: Section 2.2
+    - {1}: Section 2.3
+    - {2}: Chapter 7
   - Week 5: Dynamic Programming 1
     - {3}: Chapter 5: Intro to Dynamic Programming (P.236)
-    - {1}: 6.3
+    - {1}: Section 6.3
     - {3}: Chapter 5: How Do We Compare Biological Sequences (optional)
     - {5}: Advanced Dynamic Programming Notes (optional)
   - Week 6: Dynamic Programming 2
-    - {1}: 6.4
+    - {1}: Section 6.4
 - Course 2: Data Structures
   - Week 1: Basic Data Structures
-    - {2}: 10.2
-    - {2}: 10.1
-    - {2}: 10.4
+    - {2}: Section 10.2
+    - {2}: Section 10.1
+    - {2}: Section 10.4
   - Week 2: Dynamic Arrays and Amortized Analysis
-    - {2}: 17
+    - {2}: Chapter 17
   - Week 3: Priority Queues and Disjoint Sets
-    - {2}: 6
-    - {2}: 6.4
-    - {2}: 21.1
-    - {2}: 21.2
-    - {1}: 5.1.4
+    - {2}: Chapter 6
+    - {2}: Section 6.4
+    - {2}: Section 21.1
+    - {2}: Section 21.2
+    - {1}: Section 5.1.4
   - Week 4: Hash Tables
-    - {1}: 1.5.1
-    - {2}: 11.1
-    - {2}: 11.2
-    - {1}: 1.5
-    - {2}: 11.3
-    - {2}: 32.1
-    - {2}: 32.2
+    - {1}: Section 1.5.1
+    - {2}: Section 11.1
+    - {2}: Section 11.2
+    - {1}: Section 1.5
+    - {2}: Section 11.3
+    - {2}: Section 32.1
+    - {2}: Section 32.2
   - Week 5: Binary Search Trees
-    - {2}: 12
-    - {4}: 5.11.1
-    - {4}: 5.11.2
+    - {2}: Chapter 12
+    - {4}: Section 5.11.1
+    - {4}: Section 5.11.2
     - {o}: [AVL Trees](https://en.wikipedia.org/wiki/AVL_tree)
   - Week 6: Binary Search Trees 2
-    - {2}: 14.1
-    - {2}: 14.2
-    - {4}: 5.11.6
+    - {2}: Section 14.1
+    - {2}: Section 14.2
+    - {4}: Section 5.11.6
     - {o}: [Self-Adjusting Binary Search Trees](https://www.cs.cmu.edu/~sleator/papers/self-adjusting.pdf)
 - Course 3: Algorithms on Graphs
   - Week 1: Decomposition of Graphs 1
-    - {1}: 3.1
-    - {1}: 3.2
+    - {1}: Section 3.1
+    - {1}: Section 3.2
   - Week 2: Decomposition of Graphs 2
-    - {1}: 3.3
-    - {1}: 3.4
+    - {1}: Section 3.3
+    - {1}: Section 3.4
   - Week 3: Paths in Graphs 1
-    - {1}: 4.1
-    - {1}: 4.2
+    - {1}: Section 4.1
+    - {1}: Section 4.2
   - Week 4: Paths in Graphs 2
-    - {1}: 4.3
-    - {1}: 4.4
-    - {1}: 4.6
+    - {1}: Section 4.3
+    - {1}: Section 4.4
+    - {1}: Section 4.6
   - Week 5: Minimum Spanning Trees
-    - {1}: 5.1
+    - {1}: Section 5.1
   - Week 6: Advanced Shortest Paths Project (optional)
 - Course 4: Algorithms on Strings
   - Week 1: Suffix Trees
@@ -107,30 +110,30 @@
     - {3}: Chapter 3: How Do We Assemble Genomes
     - {3}: Chapter 9: How Do We Locate Disease-Causing Mutations
   - Week 3: Knuth-Morris-Pratt Algorithm
-    - {6}: 1
-    - {6}: 2.3
-    - {6}: 3.3
+    - {6}: Chapter 1
+    - {6}: Section 2.3
+    - {6}: Section 3.3
   - Week 4: Constructing Suffix Arrays and Suffix Trees
-    - {6}: 4
-    - {3}: ∞
+    - {6}: Chapter 4
+    - {3}: ...
 - Course 5: Advanced Algorithms and Complexity
   - Week 1: Flows in Networks
-    - {1}: 7.1
-    - {1}: 7.2
-    - {1}: 7.3
-    - {7}: 7
-    - {2}: 26
+    - {1}: Section 7.1
+    - {1}: Section 7.2
+    - {1}: Section 7.3
+    - {7}: Chapter 7
+    - {2}: Chapter 26
   - Week 2: Linear Programming
-    - {1}: 7
-    - {2}: 29
+    - {1}: Chapter 7
+    - {2}: Chapter 29
   - Week 3: NP-Complete Problems
-    - {1}: 8
-    - {7}: 8
-    - {2}: 34
+    - {1}: Chapter 8
+    - {7}: Chapter 8
+    - {2}: Chapter 34
   - Week 4: Coping with NP-Completeness
-    - {1}: 9
-    - {7}: 10
-    - {3}: 35
+    - {1}: Chapter 9
+    - {7}: Chapter 10
+    - {3}: Chapter 35
   - Week 5: Streaming Algorithms (optional)
 - Course 6: Genome Assembly Programming Challenge
   - Week 1: The 2011 European E. coli Outbreak
@@ -142,7 +145,7 @@
 ## Problems
 
 Weekly assignments can be found at `/resources`\
-Solutions and test files can be tested like this, which should be placed in the `out` file
+Solutions and test files can be tested using the following command (those commands will be placed in the `out` file in problem's directory):
 
 ```sh
 diff -b <(python3 solution.py < test/1) <(cat test/1.a)
