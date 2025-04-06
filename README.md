@@ -4,6 +4,13 @@
 
 [Data Structures and Algorithms Specialization](https://www.coursera.org/specializations/data-structures-algorithms)
 
+This repository contains both Python and Go implementations of the assignments. The Go solutions live next to the Python ones, include tests, and can be run from the repository root.
+
+## Languages
+
+- Python 3
+- Go 1.21+ (`go.mod` uses the `dsa` module)
+
 ## Course 1 - [Algorithmic Toolbox](https://www.coursera.org/learn/algorithmic-toolbox)
 
 ## Course 2 - [Data Structures](https://www.coursera.org/learn/data-structures)
@@ -145,11 +152,20 @@
 ## Problems
 
 Weekly assignments can be found at `/resources`\
-Solutions and test files can be tested using the following command (those commands will be placed in the `out` file in problem's directory):
+Solutions and test files can be tested using the following commands (the commands write their output to the `out` file in the problem directory):
 
 ```sh
+# Python
 diff -b <(python3 solution.py < test/1) <(cat test/1.a)
+
+# Go (from the problem directory)
+diff -b <(go run solution.go < test/2) <(cat test/2.a)
+
+# Run every Go test from the repository root
+go test ./...
 ```
+
+Each Go solution has a matching `_test.go` file with fixture checks and edge cases. Shared helpers used by several assignments live in `internal/` packages inside the relevant course directory.
 
 <details>
 <summary><strong>Command explain</strong></summary>
@@ -163,5 +179,7 @@ This command compares the output of the Python script (`solution.py`) when run w
 - `solution.py`: your solution file
 - `test/1`: provided input file
 - `test/1.a`: expected output file
+
+The Go variant is the same: `solution.go` is the program and `go run solution.go < test/2` compiles and runs it. From the repository root, `go test ./...` runs the full Go test suite, including fixture comparisons and edge cases for every solution.
 
 </details>
