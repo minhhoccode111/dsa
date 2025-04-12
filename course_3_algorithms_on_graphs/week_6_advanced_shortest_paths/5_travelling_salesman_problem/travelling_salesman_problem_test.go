@@ -1,12 +1,8 @@
 package main
 
-import (
-	"testing"
+import "testing"
 
-	"dsa/course_3_algorithms_on_graphs/week_6_advanced_shortest_paths/internal/search"
-)
-
-func buildTestGraph(n int, edges []tourEdge) ([][]search.Edge, [][]search.Edge) {
+func buildTestGraph(n int, edges []tourEdge) ([][]Edge, [][]Edge) {
 	return buildTourGraph(n, edges)
 }
 

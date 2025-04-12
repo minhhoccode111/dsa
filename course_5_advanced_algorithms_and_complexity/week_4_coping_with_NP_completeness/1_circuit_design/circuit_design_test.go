@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"dsa/course_5_advanced_algorithms_and_complexity/internal/twosat"
 )
 
 func TestCircuitDesignFixtures(t *testing.T) {
@@ -31,7 +29,7 @@ func TestCircuitDesignFixtures(t *testing.T) {
 			t.Fatalf("%s: %v", entry.Name(), err)
 		}
 		lines := strings.Split(strings.TrimSpace(string(expected)), "\n")
-		assignment, ok := twosat.Solve(n, clauses)
+		assignment, ok := Solve(n, clauses)
 		if lines[0] == "UNSATISFIABLE" {
 			if ok {
 				t.Fatalf("%s: got SATISFIABLE, want UNSATISFIABLE", entry.Name())
@@ -54,23 +52,23 @@ func TestCircuitDesignFixtures(t *testing.T) {
 }
 
 func TestCircuitDesignSimple(t *testing.T) {
-	clauses := []twosat.Clause{{1, 1}}
-	assignment, ok := twosat.Solve(1, clauses)
+	clauses := []Clause{{1, 1}}
+	assignment, ok := Solve(1, clauses)
 	if !ok || !assignment[1] {
 		t.Fatalf("got %v %v, want x1=true", assignment, ok)
 	}
-	clauses = []twosat.Clause{{-1, -1}}
-	assignment, ok = twosat.Solve(1, clauses)
+	clauses = []Clause{{-1, -1}}
+	assignment, ok = Solve(1, clauses)
 	if !ok || assignment[1] {
 		t.Fatalf("got %v %v, want x1=false", assignment, ok)
 	}
-	clauses = []twosat.Clause{{1, 1}, {-1, -1}}
-	if _, ok := twosat.Solve(1, clauses); ok {
+	clauses = []Clause{{1, 1}, {-1, -1}}
+	if _, ok := Solve(1, clauses); ok {
 		t.Fatal("expected unsatisfiable")
 	}
 }
 
-func circuitAssignmentValid(n, m int, clauses []twosat.Clause, assignment []bool) bool {
+func circuitAssignmentValid(n, m int, clauses []Clause, assignment []bool) bool {
 	if len(assignment) != n+1 {
 		return false
 	}
@@ -95,7 +93,7 @@ func circuitAssignmentValid(n, m int, clauses []twosat.Clause, assignment []bool
 	return true
 }
 
-func bruteCircuitSat(n int, clauses []twosat.Clause) bool {
+func bruteCircuitSat(n int, clauses []Clause) bool {
 	for mask := 0; mask < 1<<n; mask++ {
 		assignment := make([]bool, n+1)
 		for i := 1; i <= n; i++ {

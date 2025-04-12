@@ -165,7 +165,7 @@ diff -b <(go run solution.go < test/2) <(cat test/2.a)
 go test ./...
 ```
 
-Each Go solution has a matching `_test.go` file with fixture checks and edge cases. Shared helpers used by several assignments live in `internal/` packages inside the relevant course directory.
+Each Go solution has a matching `_test.go` file with fixture checks and edge cases. Every Go solution file is self-contained: shared helpers used by several assignments are inlined so that the file can be submitted to Coursera as a single source file. The `internal/` packages are kept for tests and are not required by a submission.
 
 <details>
 <summary><strong>Command explain</strong></summary>
