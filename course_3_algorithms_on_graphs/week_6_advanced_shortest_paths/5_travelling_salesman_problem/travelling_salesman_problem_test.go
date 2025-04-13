@@ -70,3 +70,20 @@ func TestTourSolver(t *testing.T) {
 		t.Fatalf("solver.minTour with unreachable store = %d, want -1", got)
 	}
 }
+
+func TestMinTourTwentyStores(t *testing.T) {
+	const n = 20
+	edges := make([]tourEdge, n)
+	stores := make([]int, n)
+	for i := 0; i < n; i++ {
+		edges[i] = tourEdge{from: i, to: (i + 1) % n, weight: 1}
+		stores[i] = i
+	}
+	adj, reverse := buildTourGraph(n, edges)
+	if got := minTour(adj, reverse, stores); got != n {
+		t.Fatalf("dijkstra minTour = %d, want %d", got, n)
+	}
+	if got := newTourSolver(n, edges).minTour(stores); got != n {
+		t.Fatalf("CH minTour = %d, want %d", got, n)
+	}
+}

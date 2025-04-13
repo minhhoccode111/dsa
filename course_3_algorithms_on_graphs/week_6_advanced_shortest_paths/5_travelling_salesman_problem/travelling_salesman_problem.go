@@ -8,6 +8,7 @@ import (
 	"bufio"
 	"container/heap"
 	"fmt"
+	"math/bits"
 	"os"
 )
 
@@ -29,7 +30,8 @@ func buildTourGraph(n int, edges []tourEdge) ([][]Edge, [][]Edge) {
 }
 
 type tourSolver struct {
-	ch *contractionHierarchy
+	ch      *contractionHierarchy
+	scratch tourScratch
 }
 
 func newTourSolver(n int, edges []tourEdge) *tourSolver {
@@ -37,7 +39,7 @@ func newTourSolver(n int, edges []tourEdge) *tourSolver {
 }
 
 func (s *tourSolver) minTour(stores []int) int64 {
-	return minTourWithDistance(s.ch.distance, stores)
+	return minTourWithScratch(s.ch.distance, stores, &s.scratch)
 }
 
 func minTour(adj, reverse [][]Edge, stores []int) int64 {
@@ -47,70 +49,104 @@ func minTour(adj, reverse [][]Edge, stores []int) int64 {
 }
 
 func minTourWithDistance(distance func(from, to int) int64, stores []int) int64 {
+	return minTourWithScratch(distance, stores, &tourScratch{})
+}
+
+type tourScratch struct {
+	dp   []int32
+	dist [][]int32
+}
+
+func minTourWithScratch(distance func(from, to int) int64, stores []int, scratch *tourScratch) int64 {
 	count := len(stores)
 	if count <= 1 {
 		return 0
 	}
 
-	dist := make([][]int64, count)
+	const inf32 int32 = 1 << 30
+	if cap(scratch.dist) < count {
+		scratch.dist = make([][]int32, count)
+	} else {
+		scratch.dist = scratch.dist[:count]
+	}
+	dist := scratch.dist
 	for i := 0; i < count; i++ {
-		dist[i] = make([]int64, count)
+		if cap(dist[i]) < count {
+			dist[i] = make([]int32, count)
+		} else {
+			dist[i] = dist[i][:count]
+		}
 		for j := 0; j < count; j++ {
-			d := distance(stores[i], stores[j])
-			if d == -1 {
-				d = inf
+			if i == j {
+				continue
 			}
-			dist[i][j] = d
+			d := distance(stores[i], stores[j])
+			if d < 0 || d >= int64(inf32) {
+				dist[i][j] = inf32
+				continue
+			}
+			dist[i][j] = int32(d)
 		}
 	}
 
 	full := 1 << count
-	dp := make([]int64, full*count)
-	for i := range dp {
-		dp[i] = inf
+	size := full * count
+	if cap(scratch.dp) < size {
+		scratch.dp = make([]int32, size)
+	} else {
+		scratch.dp = scratch.dp[:size]
 	}
-	dp[1*count] = 0
+	dp := scratch.dp
+	for i := range dp {
+		dp[i] = inf32
+	}
+	dp[count] = 0 // mask with only the depot, ending there
 
+	allBits := full - 1
 	for mask := 1; mask < full; mask++ {
 		if mask&1 == 0 {
 			continue
 		}
-		for last := 0; last < count; last++ {
-			if mask&(1<<last) == 0 {
-				continue
-			}
+		for lastBits := mask; lastBits != 0; lastBits &= lastBits - 1 {
+			last := bits.TrailingZeros(uint(lastBits))
 			current := dp[mask*count+last]
-			if current == inf {
+			if current == inf32 {
 				continue
 			}
-			for next := 1; next < count; next++ {
-				if mask&(1<<next) != 0 || dist[last][next] == inf {
+			remaining := allBits ^ mask
+			for nextBits := remaining; nextBits != 0; nextBits &= nextBits - 1 {
+				next := bits.TrailingZeros(uint(nextBits))
+				weight := dist[last][next]
+				if weight == inf32 || current >= inf32-1-weight {
 					continue
 				}
+				candidate := current + weight
 				nextMask := mask | 1<<next
-				candidate := current + dist[last][next]
-				if candidate < dp[nextMask*count+next] {
-					dp[nextMask*count+next] = candidate
+				index := nextMask*count + next
+				if candidate < dp[index] {
+					dp[index] = candidate
 				}
 			}
 		}
 	}
 
-	best := inf
-	for last := 1; last < count; last++ {
-		if dp[(full-1)*count+last] == inf || dist[last][0] == inf {
+	best := inf32
+	for lastBits := allBits &^ 1; lastBits != 0; lastBits &= lastBits - 1 {
+		last := bits.TrailingZeros(uint(lastBits))
+		current := dp[allBits*count+last]
+		weight := dist[last][0]
+		if current == inf32 || weight == inf32 || current >= inf32-1-weight {
 			continue
 		}
-		candidate := dp[(full-1)*count+last] + dist[last][0]
-		if candidate < best {
+		if candidate := current + weight; candidate < best {
 			best = candidate
 		}
 	}
 
-	if best == inf {
+	if best == inf32 {
 		return -1
 	}
-	return best
+	return int64(best)
 }
 
 func main() {
@@ -460,246 +496,178 @@ type chBuilder struct {
 	seen        []int32
 	stamp       int32
 	witnessHeap chWitnessHeap
+
+	contractedNeighbors []int
+	level               []int
+	neighborStamp       []int32
+	neighborMarkStamp   int32
+	rank                int
+}
+
+type chShortcut struct {
+	from, to int
+	weight   int64
+}
+
+type chPriorityItem struct {
+	priority int
+	node     int
+}
+
+type chPriorityHeap []chPriorityItem
+
+func (h chPriorityHeap) Len() int { return len(h) }
+func (h chPriorityHeap) Less(i, j int) bool {
+	if h[i].priority != h[j].priority {
+		return h[i].priority < h[j].priority
+	}
+	return h[i].node < h[j].node
+}
+func (h chPriorityHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
+func (h *chPriorityHeap) Push(x interface{}) {
+	*h = append(*h, x.(chPriorityItem))
+}
+func (h *chPriorityHeap) Pop() interface{} {
+	old := *h
+	item := old[len(old)-1]
+	*h = old[:len(old)-1]
+	return item
 }
 
 func (b *chBuilder) build() {
-	order := nestedDissectionOrder(b.graph)
-	for rank, node := range order {
-		b.contract(node)
-		b.contracted[node] = true
-		b.graph.level[node] = rank
+	n := b.graph.n
+	b.contractedNeighbors = make([]int, n)
+	b.level = make([]int, n)
+	b.neighborStamp = make([]int32, n)
+
+	queue := make(chPriorityHeap, 0, n)
+	for node := 0; node < n; node++ {
+		queue = append(queue, chPriorityItem{
+			priority: len(b.graph.in[node]) + len(b.graph.out[node]),
+			node:     node,
+		})
 	}
-}
+	heap.Init(&queue)
 
-func nestedDissectionOrder(g *contractionHierarchy) []int {
-	n := g.n
-	adjacency := make([][]int, n)
-	for u, edges := range g.out {
-		for _, edge := range edges {
-			if edge.to == u {
-				continue
-			}
-			adjacency[u] = append(adjacency[u], edge.to)
-			adjacency[edge.to] = append(adjacency[edge.to], u)
-		}
-	}
-
-	order := make([]int, 0, n)
-	mark := make([]int32, n)
-	visited := make([]int32, n)
-	dist := make([]int, n)
-	var markStamp, visitStamp int32
-
-	var decompose func(nodes []int)
-	decomposeConnected := func(component []int) {
-		if len(component) <= 64 {
-			order = append(order, component...)
-			return
-		}
-		markStamp++
-		if markStamp == 0 {
-			for i := range mark {
-				mark[i] = 0
-			}
-			markStamp = 1
-		}
-		stamp := markStamp
-		for _, node := range component {
-			mark[node] = stamp
-		}
-
-		visitStamp++
-		if visitStamp == 0 {
-			for i := range visited {
-				visited[i] = 0
-			}
-			visitStamp = 1
-		}
-		queue := make([]int, 0, len(component))
-		start := component[0]
-		queue = append(queue, start)
-		visited[start] = visitStamp
-		dist[start] = 0
-		farthest := start
-		for head := 0; head < len(queue); head++ {
-			v := queue[head]
-			for _, next := range adjacency[v] {
-				if mark[next] != stamp || visited[next] == visitStamp {
-					continue
-				}
-				visited[next] = visitStamp
-				dist[next] = dist[v] + 1
-				if dist[next] > dist[farthest] {
-					farthest = next
-				}
-				queue = append(queue, next)
-			}
-		}
-
-		visitStamp++
-		if visitStamp == 0 {
-			for i := range visited {
-				visited[i] = 0
-			}
-			visitStamp = 1
-		}
-		queue = queue[:0]
-		queue = append(queue, farthest)
-		visited[farthest] = visitStamp
-		dist[farthest] = 0
-		maxLevel := 0
-		for head := 0; head < len(queue); head++ {
-			v := queue[head]
-			for _, next := range adjacency[v] {
-				if mark[next] != stamp || visited[next] == visitStamp {
-					continue
-				}
-				visited[next] = visitStamp
-				dist[next] = dist[v] + 1
-				if dist[next] > maxLevel {
-					maxLevel = dist[next]
-				}
-				queue = append(queue, next)
-			}
-		}
-
-		counts := make([]int, maxLevel+1)
-		for _, v := range component {
-			counts[dist[v]]++
-		}
-		total := len(component)
-		bestLevel := -1
-		bestScore := 1 << 60
-		cumulative := 0
-		for level := 0; level <= maxLevel; level++ {
-			if level > 0 && level < maxLevel {
-				score := cumulative + counts[level]/2 - total/2
-				if score < 0 {
-					score = -score
-				}
-				if score < bestScore {
-					bestScore = score
-					bestLevel = level
-				}
-			}
-			cumulative += counts[level]
-		}
-		if bestLevel < 0 {
-			if counts[0] <= counts[maxLevel] {
-				bestLevel = 0
-			} else {
-				bestLevel = maxLevel
-			}
-		}
-		if counts[bestLevel] > total/2 {
-			order = append(order, component...)
-			return
-		}
-
-		lower := make([]int, 0, total)
-		upper := make([]int, 0, total)
-		separator := make([]int, 0, counts[bestLevel])
-		for _, v := range component {
-			switch {
-			case dist[v] < bestLevel:
-				lower = append(lower, v)
-			case dist[v] > bestLevel:
-				upper = append(upper, v)
-			default:
-				separator = append(separator, v)
-			}
-		}
-		decompose(lower)
-		decompose(upper)
-		order = append(order, separator...)
-	}
-
-	decompose = func(nodes []int) {
-		if len(nodes) == 0 {
-			return
-		}
-		if len(nodes) <= 64 {
-			order = append(order, nodes...)
-			return
-		}
-		markStamp++
-		if markStamp == 0 {
-			for i := range mark {
-				mark[i] = 0
-			}
-			markStamp = 1
-		}
-		for _, node := range nodes {
-			mark[node] = markStamp
-		}
-		visitStamp++
-		if visitStamp == 0 {
-			for i := range visited {
-				visited[i] = 0
-			}
-			visitStamp = 1
-		}
-		components := make([][]int, 0)
-		for _, start := range nodes {
-			if visited[start] == visitStamp {
-				continue
-			}
-			component := make([]int, 0)
-			queue := []int{start}
-			visited[start] = visitStamp
-			for head := 0; head < len(queue); head++ {
-				v := queue[head]
-				component = append(component, v)
-				for _, next := range adjacency[v] {
-					if mark[next] == markStamp && visited[next] != visitStamp {
-						visited[next] = visitStamp
-						queue = append(queue, next)
-					}
-				}
-			}
-			components = append(components, component)
-		}
-		for _, component := range components {
-			decomposeConnected(component)
-		}
-	}
-
-	decompose(makeRange(n))
-	return order
-}
-
-func makeRange(n int) []int {
-	nodes := make([]int, n)
-	for i := range nodes {
-		nodes[i] = i
-	}
-	return nodes
-}
-
-func (b *chBuilder) contract(node int) {
-	for _, incoming := range b.graph.in[node] {
-		u := incoming.to
-		if b.contracted[u] {
+	for queue.Len() > 0 {
+		item := heap.Pop(&queue).(chPriorityItem)
+		node := item.node
+		if b.contracted[node] {
 			continue
 		}
-		for _, outgoing := range b.graph.out[node] {
+
+		shortcuts := b.findShortcuts(node)
+		inDegree, outDegree := 0, 0
+		for _, edge := range b.graph.in[node] {
+			if !b.contracted[edge.to] {
+				inDegree++
+			}
+		}
+		for _, edge := range b.graph.out[node] {
+			if !b.contracted[edge.to] {
+				outDegree++
+			}
+		}
+		priority := len(shortcuts) - inDegree - outDegree +
+			b.contractedNeighbors[node] + b.level[node]
+		if queue.Len() > 0 && priority > queue[0].priority {
+			heap.Push(&queue, chPriorityItem{priority: priority, node: node})
+			continue
+		}
+
+		b.applyShortcuts(shortcuts)
+		b.contracted[node] = true
+		b.graph.level[node] = b.rank
+		b.rank++
+		b.markNeighbors(node)
+	}
+}
+
+func (b *chBuilder) findShortcuts(node int) []chShortcut {
+	shortcuts := make([]chShortcut, 0)
+	incomingEdges := b.graph.in[node]
+	outgoingEdges := b.graph.out[node]
+
+	type target struct {
+		node  int
+		limit int64
+	}
+	targets := make([]target, 0, len(outgoingEdges))
+
+	for _, incoming := range incomingEdges {
+		u := incoming.to
+		if b.contracted[u] || u == node {
+			continue
+		}
+		targets = targets[:0]
+		maxLimit := int64(-1)
+		for _, outgoing := range outgoingEdges {
 			w := outgoing.to
-			if b.contracted[w] || w == u {
+			if b.contracted[w] || w == u || w == node {
 				continue
 			}
 			limit := incoming.weight + outgoing.weight
 			if b.graph.hasEdgeAtMost(u, w, limit) {
 				continue
 			}
-			if b.hasWitness(u, w, node, limit, contractSettleLimit, contractHopLimit) {
+			targets = append(targets, target{node: w, limit: limit})
+			if limit > maxLimit {
+				maxLimit = limit
+			}
+		}
+		if len(targets) == 0 {
+			continue
+		}
+
+		b.witnessSearch(u, node, maxLimit)
+		for _, t := range targets {
+			if b.seen[t.node] == b.stamp && b.dist[t.node] <= t.limit {
 				continue
 			}
-			b.graph.addArc(u, w, limit)
+			shortcuts = append(shortcuts, chShortcut{from: u, to: t.node, weight: t.limit})
 		}
+	}
+
+	return shortcuts
+}
+
+func (b *chBuilder) applyShortcuts(shortcuts []chShortcut) {
+	for _, shortcut := range shortcuts {
+		b.graph.addArc(shortcut.from, shortcut.to, shortcut.weight)
 	}
 }
 
-func (b *chBuilder) hasWitness(source, target, avoid int, limit int64, settleLimit, hopLimit int) bool {
+func (b *chBuilder) markNeighbors(node int) {
+	b.neighborMarkStamp++
+	if b.neighborMarkStamp == 0 {
+		for i := range b.neighborStamp {
+			b.neighborStamp[i] = 0
+		}
+		b.neighborMarkStamp = 1
+	}
+	stamp := b.neighborMarkStamp
+	visit := func(neighbor int) {
+		if b.contracted[neighbor] || b.neighborStamp[neighbor] == stamp {
+			return
+		}
+		b.neighborStamp[neighbor] = stamp
+		b.contractedNeighbors[neighbor]++
+		if b.level[node]+1 > b.level[neighbor] {
+			b.level[neighbor] = b.level[node] + 1
+		}
+	}
+	for _, edge := range b.graph.in[node] {
+		visit(edge.to)
+	}
+	for _, edge := range b.graph.out[node] {
+		visit(edge.to)
+	}
+}
+
+// witnessSearch explores paths starting at source while avoiding the node
+// being contracted. One search serves every outgoing edge of that node, which
+// removes the repeated work of a separate search per shortcut candidate.
+func (b *chBuilder) witnessSearch(source, avoid int, limit int64) {
 	b.stamp++
 	if b.stamp == 0 {
 		for i := range b.seen {
@@ -721,16 +689,13 @@ func (b *chBuilder) hasWitness(source, target, avoid int, limit int64, settleLim
 			continue
 		}
 		if item.distance > limit {
-			return false
-		}
-		if item.node == target {
-			return true
+			return
 		}
 		settled++
-		if settled > settleLimit {
-			return false
+		if settled > contractSettleLimit {
+			return
 		}
-		if item.hops >= hopLimit {
+		if item.hops >= contractHopLimit {
 			continue
 		}
 		for _, edge := range b.graph.out[item.node] {
@@ -748,7 +713,6 @@ func (b *chBuilder) hasWitness(source, target, avoid int, limit int64, settleLim
 			}
 		}
 	}
-	return false
 }
 
 type chWitnessItem struct {

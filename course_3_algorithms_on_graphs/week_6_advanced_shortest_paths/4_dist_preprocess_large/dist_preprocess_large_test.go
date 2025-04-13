@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"math/rand"
+	"testing"
+)
 
 func TestDistanceQueries(t *testing.T) {
 	tests := []struct {
@@ -49,5 +52,35 @@ func TestDistanceQueries(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestDistanceQueriesMatchesDijkstra(t *testing.T) {
+	rng := rand.New(rand.NewSource(11))
+	for round := 0; round < 200; round++ {
+		n := 1 + rng.Intn(25)
+		m := rng.Intn(n*n + 1)
+		edges := make([]distanceEdge, 0, m)
+		for i := 0; i < m; i++ {
+			edges = append(edges, distanceEdge{
+				from:   rng.Intn(n),
+				to:     rng.Intn(n),
+				weight: int64(1 + rng.Intn(50)),
+			})
+		}
+		queries := make([]distanceQuery, 0, 50)
+		for i := 0; i < 50; i++ {
+			queries = append(queries, distanceQuery{from: rng.Intn(n), to: rng.Intn(n)})
+		}
+
+		got := distanceQueries(n, edges, queries)
+		adj, reverse := buildSearchGraph(n, edges)
+		for i, query := range queries {
+			want := Distance(adj, reverse, query.from, query.to)
+			if got[i] != want {
+				t.Fatalf("round %d: distance(%d,%d) = %d, want %d",
+					round, query.from, query.to, got[i], want)
+			}
+		}
 	}
 }
