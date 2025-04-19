@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"reflect"
 	"testing"
 )
@@ -43,6 +44,26 @@ func TestFindPattern(t *testing.T) {
 		}
 		if !reflect.DeepEqual(got, tt.want) {
 			t.Fatalf("findPattern(%q, %q) = %v, want %v", tt.pattern, tt.text, got, tt.want)
+		}
+	}
+}
+
+func TestWritePositions(t *testing.T) {
+	tests := []struct {
+		positions []int
+		want      string
+	}{
+		{nil, "\n"},
+		{[]int{0}, "0\n"},
+		{[]int{0, 2, 2, 10}, "0 2 2 10\n"},
+		{[]int{999999, 1000000}, "999999 1000000\n"},
+	}
+
+	for _, tt := range tests {
+		var out bytes.Buffer
+		writePositions(&out, tt.positions)
+		if got := out.String(); got != tt.want {
+			t.Fatalf("writePositions(%v) = %q, want %q", tt.positions, got, tt.want)
 		}
 	}
 }

@@ -7,7 +7,9 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
+	"strconv"
 )
 
 func computePrefixFunction(pattern string) []int {
@@ -43,6 +45,19 @@ func findPattern(pattern, text string) []int {
 	return result
 }
 
+func writePositions(w io.Writer, positions []int) {
+	buffered := bufio.NewWriterSize(w, 1<<20)
+	var buf [20]byte
+	for i, position := range positions {
+		if i > 0 {
+			buffered.WriteByte(' ')
+		}
+		buffered.Write(strconv.AppendInt(buf[:0], int64(position), 10))
+	}
+	buffered.WriteByte('\n')
+	buffered.Flush()
+}
+
 func main() {
 	reader := bufio.NewReader(os.Stdin)
 	var pattern, text string
@@ -52,11 +67,5 @@ func main() {
 	if _, err := fmt.Fscan(reader, &text); err != nil {
 		return
 	}
-	for i, position := range findPattern(pattern, text) {
-		if i > 0 {
-			fmt.Print(" ")
-		}
-		fmt.Print(position)
-	}
-	fmt.Println()
+	writePositions(os.Stdout, findPattern(pattern, text))
 }
