@@ -33,6 +33,18 @@ func TestAdAllocationFixtures(t *testing.T) {
 			t.Fatalf("%s: %v", entry.Name(), err)
 		}
 		status, solution := lp.SimplexMax(a, b, c)
+		inlinedStatus, inlinedSolution := SimplexMax(a, b, c)
+		if int(inlinedStatus) != int(status) {
+			t.Fatalf("%s: inlined status = %d, internal status = %d", entry.Name(), inlinedStatus, status)
+		}
+		if status == lp.SimplexBounded {
+			for j := range solution {
+				if math.Abs(solution[j]-inlinedSolution[j]) > 1e-6 {
+					t.Fatalf("%s: inlined x[%d] = %v, internal = %v", entry.Name(), j, inlinedSolution[j], solution[j])
+				}
+			}
+			solution = inlinedSolution
+		}
 		lines := strings.Split(strings.TrimSpace(string(expected)), "\n")
 		switch lines[0] {
 		case "Infinity":

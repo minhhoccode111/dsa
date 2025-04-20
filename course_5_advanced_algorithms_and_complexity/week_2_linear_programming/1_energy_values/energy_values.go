@@ -157,6 +157,28 @@ const (
 func SimplexMax(a [][]float64, b, c []float64) (SimplexStatus, []float64) {
 	rows := len(a)
 	cols := len(c)
+	// Scale each constraint row to a unit maximum coefficient. This improves
+	// conditioning and keeps rounding errors from driving right-hand sides
+	// negative during pivoting.
+	if rows > 0 {
+		scaledA := make([][]float64, rows)
+		scaledB := make([]float64, rows)
+		for i := 0; i < rows; i++ {
+			scale := 1.0
+			for _, value := range a[i] {
+				if math.Abs(value) > scale {
+					scale = math.Abs(value)
+				}
+			}
+			scaledA[i] = make([]float64, len(a[i]))
+			for j, value := range a[i] {
+				scaledA[i][j] = value / scale
+			}
+			scaledB[i] = b[i] / scale
+		}
+		a = scaledA
+		b = scaledB
+	}
 	if rows == 0 {
 		for _, value := range c {
 			if value > epsilon {
@@ -203,12 +225,21 @@ func SimplexMax(a [][]float64, b, c []float64) (SimplexStatus, []float64) {
 		cost[j] = -1
 	}
 	objective := buildObjective(tableau, basis, cost)
-	status := simplexCore(tableau, objective, basis)
+	status := simplexCore(tableau, objective, basis, false)
 	if status == SimplexUnbounded {
 		return SimplexInfeasible, nil
 	}
-	if objective[total] < -1e-7 {
-		return SimplexInfeasible, nil
+	// Phase 1 is feasible only when every artificial variable is zero. Check
+	// the basic artificial values instead of the objective constant, which
+	// accumulates rounding error during pivoting.
+	for i := 0; i < rows; i++ {
+		if basis[i] < cols+rows {
+			continue
+		}
+		if tableau[i][total] > 1e-5 {
+			return SimplexInfeasible, nil
+		}
+		tableau[i][total] = 0
 	}
 	// Pivot any artificial variable that is still basic out of the basis.
 	for i := 0; i < len(tableau)-1; i++ {
@@ -254,10 +285,18 @@ func SimplexMax(a [][]float64, b, c []float64) (SimplexStatus, []float64) {
 	}
 	basis = newBasis
 
+	// Pivoting can leave tiny negative right-hand sides. Clamp them to zero
+	// so that phase 2 starts from a feasible basis.
+	for i := 0; i < len(tableau)-1; i++ {
+		if tableau[i][cols+rows] < 0 && tableau[i][cols+rows] > -1e-7 {
+			tableau[i][cols+rows] = 0
+		}
+	}
+
 	cost = make([]float64, cols+rows)
 	copy(cost, c)
 	objective = buildObjective(tableau, basis, cost)
-	status = simplexCore(tableau, objective, basis)
+	status = simplexCore(tableau, objective, basis, true)
 	if status == SimplexUnbounded {
 		return SimplexUnbounded, nil
 	}
@@ -294,7 +333,7 @@ func buildObjective(tableau [][]float64, basis []int, cost []float64) []float64 
 	return objective
 }
 
-func simplexCore(tableau [][]float64, objective []float64, basis []int) SimplexStatus {
+func simplexCore(tableau [][]float64, objective []float64, basis []int, unboundedOK bool) SimplexStatus {
 	rows := len(tableau) - 1
 	cols := len(tableau[0]) - 1
 	for iteration := 0; iteration < 200000; iteration++ {
@@ -319,14 +358,25 @@ func simplexCore(tableau [][]float64, objective []float64, basis []int) SimplexS
 			if coefficient <= 1e-9 {
 				continue
 			}
-			ratio := tableau[i][cols] / coefficient
+			rhs := tableau[i][cols]
+			if rhs < 0 && rhs > -1e-7 {
+				rhs = 0
+			}
+			ratio := rhs / coefficient
 			if ratio < bestRatio-1e-9 || (math.Abs(ratio-bestRatio) <= 1e-9 && (leaving < 0 || basis[i] < basis[leaving])) {
 				bestRatio = ratio
 				leaving = i
 			}
 		}
 		if leaving < 0 {
-			return SimplexUnbounded
+			if unboundedOK {
+				return SimplexUnbounded
+			}
+			// Phase 1 cannot be unbounded: its objective is the negated sum
+			// of non-negative artificial variables. Treat the column as a
+			// numerical artefact and ignore its reduced cost.
+			objective[entering] = 0
+			continue
 		}
 		pivot(tableau, objective, basis, leaving, entering)
 	}
@@ -336,6 +386,9 @@ func simplexCore(tableau [][]float64, objective []float64, basis []int) SimplexS
 func pivot(tableau [][]float64, objective []float64, basis []int, row, column int) {
 	cols := len(tableau[0]) - 1
 	value := tableau[row][column]
+	if tableau[row][cols] < 0 && tableau[row][cols] > -1e-7 {
+		tableau[row][cols] = 0
+	}
 	for j := 0; j < cols+1; j++ {
 		tableau[row][j] /= value
 	}
@@ -350,6 +403,9 @@ func pivot(tableau [][]float64, objective []float64, basis []int, row, column in
 		}
 		for j := 0; j < cols+1; j++ {
 			tableau[i][j] -= factor * tableau[row][j]
+		}
+		if i < len(tableau)-1 && tableau[i][cols] < 0 && tableau[i][cols] > -1e-7 {
+			tableau[i][cols] = 0
 		}
 	}
 	basis[row] = column

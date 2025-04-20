@@ -34,6 +34,7 @@ This repository contains both Python and Go implementations of the assignments. 
 - Algorithm design (1st Edition). Addison-Wesley, Jon M. Kleinberg and Eva Tardos. {7}
 - [Learn Python In Y Minutes](https://learnxinyminutes.com/docs/python/) {8}
 - [Discrete Mathematics Lecture notes by László Lovász, Yale University](https://cims.nyu.edu/~regev/teaching/discrete_math_fall_2005/dmbook.pdf) {9}
+- [Learn Go In Y Minutes](https://learnxinyminutes.com/go/) {10}
 
 <details>
 <summary><strong>Reading List Chapters</strong></summary>
@@ -41,6 +42,7 @@ This repository contains both Python and Go implementations of the assignments. 
 - Course 0: Prerequisites
   - {8}: Basic Python Programming
   - {9}: Basic Discrete Mathematics
+  - {10}: Basic Go Programming
 - Course 1: Algorithmic Toolbox
   - Week 1: Intro
   - Week 2: Warm-up
