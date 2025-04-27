@@ -19,6 +19,19 @@ func TestFindEulerianCycle(t *testing.T) {
 	}
 }
 
+func TestFindEulerianCycleNestedCycles(t *testing.T) {
+	// Cycle 0 is 0->1->5->0. Cycle 1 is 2->5->2 and shares only vertex 5.
+	// Cycle 1 starts at vertex 2, which never appears on cycle 0.
+	edges := [][2]int{{0, 1}, {1, 5}, {2, 5}, {5, 2}, {5, 0}}
+	path, ok := FindEulerianCycle(6, edges)
+	if !ok {
+		t.Fatal("expected a cycle through both nested cycles")
+	}
+	if len(path) != len(edges)+1 || path[0] != path[len(path)-1] {
+		t.Fatalf("path = %v", path)
+	}
+}
+
 func TestFindEulerianCycleDisconnected(t *testing.T) {
 	edges := [][2]int{{0, 1}, {1, 2}, {2, 0}, {3, 4}, {4, 3}}
 	if path, ok := FindEulerianCycle(5, edges); ok {

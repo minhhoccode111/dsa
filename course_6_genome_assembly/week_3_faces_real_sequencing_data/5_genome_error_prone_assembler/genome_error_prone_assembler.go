@@ -295,72 +295,50 @@ func main() {
 // FindEulerianCycle returns an Eulerian cycle as a sequence of vertices. The
 // returned path repeats the starting vertex at the end.
 func FindEulerianCycle(n int, edges [][2]int) ([]int, bool) {
-	if !hasEulerianCycle(n, edges) {
-		return nil, false
-	}
 	if len(edges) == 0 {
 		return nil, true
 	}
 
 	adjacency := make([][]int, n)
 	for id, edge := range edges {
-		adjacency[edge[0]] = append(adjacency[edge[0]], id)
-	}
-
-	explored := 0
-	previous := 0
-	cycles := make([][]int, 0)
-	for explored < len(edges) {
-		edgeID := -1
-		for vertex := previous; vertex < n; vertex++ {
-			if len(adjacency[vertex]) > 0 {
-				edgeID = adjacency[vertex][len(adjacency[vertex])-1]
-				adjacency[vertex] = adjacency[vertex][:len(adjacency[vertex])-1]
-				explored++
-				previous = vertex
-				break
-			}
-		}
-		if edgeID < 0 {
+		if edge[0] < 0 || edge[0] >= n || edge[1] < 0 || edge[1] >= n {
 			return nil, false
 		}
-		start, next := edges[edgeID][0], edges[edgeID][1]
-		cycle := []int{start, next}
-		for next != start {
-			if len(adjacency[next]) == 0 {
-				return nil, false
-			}
-			edgeID = adjacency[next][len(adjacency[next])-1]
-			adjacency[next] = adjacency[next][:len(adjacency[next])-1]
-			explored++
-			next = edges[edgeID][1]
-			cycle = append(cycle, next)
-		}
-		cycles = append(cycles, cycle)
+		adjacency[edge[0]] = append(adjacency[edge[0]], id)
 	}
-
-	cycleStarts := make(map[int][]int)
-	for i, cycle := range cycles {
-		cycleStarts[cycle[0]] = append(cycleStarts[cycle[0]], i)
-	}
-
-	path := make([]int, 0)
-	stack := newDeque()
-	stack.pushBack(cycles[0][0])
-	for stack.len() > 0 {
-		current := stack.popFront()
-		if ids := cycleStarts[current]; len(ids) > 0 {
-			id := ids[len(ids)-1]
-			cycleStarts[current] = ids[:len(ids)-1]
-			cycle := cycles[id]
-			for i := len(cycle) - 1; i >= 1; i-- {
-				stack.pushFront(cycle[i])
-			}
-		}
-		path = append(path, current)
-	}
-	if len(edges) > 0 && len(path) != len(edges)+1 {
+	if !hasEulerianCycle(n, edges) {
 		return nil, false
+	}
+
+	start := -1
+	for vertex := 0; vertex < n; vertex++ {
+		if len(adjacency[vertex]) > 0 {
+			start = vertex
+			break
+		}
+	}
+	if start < 0 {
+		return nil, false
+	}
+
+	stack := []int{start}
+	path := make([]int, 0, len(edges)+1)
+	for len(stack) > 0 {
+		vertex := stack[len(stack)-1]
+		if len(adjacency[vertex]) > 0 {
+			edgeID := adjacency[vertex][len(adjacency[vertex])-1]
+			adjacency[vertex] = adjacency[vertex][:len(adjacency[vertex])-1]
+			stack = append(stack, edges[edgeID][1])
+		} else {
+			path = append(path, vertex)
+			stack = stack[:len(stack)-1]
+		}
+	}
+	if len(path) != len(edges)+1 {
+		return nil, false
+	}
+	for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
+		path[i], path[j] = path[j], path[i]
 	}
 	return path, true
 }
@@ -610,36 +588,4 @@ func UnitigContigs(kmers []string) []string {
 	}
 	sort.Strings(contigs)
 	return contigs
-}
-
-type deque struct {
-	front []int
-	back  []int
-}
-
-func newDeque() *deque {
-	return &deque{}
-}
-
-func (d *deque) len() int {
-	return len(d.front) + len(d.back)
-}
-
-func (d *deque) pushFront(value int) {
-	d.front = append(d.front, value)
-}
-
-func (d *deque) pushBack(value int) {
-	d.back = append(d.back, value)
-}
-
-func (d *deque) popFront() int {
-	if len(d.front) > 0 {
-		value := d.front[len(d.front)-1]
-		d.front = d.front[:len(d.front)-1]
-		return value
-	}
-	value := d.back[0]
-	d.back = d.back[1:]
-	return value
 }
