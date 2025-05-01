@@ -4,6 +4,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -104,6 +105,27 @@ func TestCountBloomPath(t *testing.T) {
 		if got := counts.count(code); got != want[start] {
 			t.Fatalf("start %d count = %d, want %d", start, got, want[start])
 		}
+	}
+}
+
+func TestVisibleDatasetAssembly(t *testing.T) {
+	root := filepath.Join("..", "..", "..")
+	data, err := os.ReadFile(filepath.Join(root, "dataset.txt"))
+	if err != nil {
+		t.Skip("visible dataset not present")
+	}
+	ref, err := os.ReadFile(filepath.Join(root, "genome.txt"))
+	if err != nil {
+		t.Skip("reference genome not present")
+	}
+	reference := strings.TrimSpace(string(ref))
+	ds := parseAssemblerDataset(data)
+	contigs := assembleDataset(ds)
+	if got := referenceCoverage(contigs, reference); got < 0.95 {
+		t.Fatalf("coverage = %v", got)
+	}
+	if got := nga50(contigs, reference); got < len(reference)*8/10 {
+		t.Fatalf("NGA50 = %d, want at least %d", got, len(reference)*8/10)
 	}
 }
 
@@ -239,6 +261,76 @@ func pairedDatasetFor(genome string, coverage, readLen, insert, spread int) *ass
 		dataset.reads = append(dataset.reads, first, second)
 	}
 	return dataset
+}
+
+func nga50(contigs []string, reference string) int {
+	length := len(reference)
+	if length == 0 {
+		return 0
+	}
+	type block struct {
+		sequence string
+		length   int
+	}
+	blocks := make([]block, 0)
+	for _, contig := range contigs {
+		for _, piece := range strings.Split(contig, "N") {
+			if len(piece) > 0 && len(piece) <= length {
+				blocks = append(blocks, block{sequence: piece, length: len(piece)})
+			}
+		}
+	}
+	sort.Slice(blocks, func(i, j int) bool { return blocks[i].length > blocks[j].length })
+	doubled := reference + reference
+	covered := make([]bool, length)
+	cumulative := 0
+	for _, item := range blocks {
+		position, added, ok := bestPlacement(item.sequence, doubled, length, covered)
+		reverse := string(reverseComplementBytes([]byte(item.sequence)))
+		reversePosition, reverseAdded, reverseOK := bestPlacement(reverse, doubled, length, covered)
+		if reverseOK && (!ok || reverseAdded > added) {
+			position, added, ok = reversePosition, reverseAdded, true
+		}
+		if !ok {
+			continue
+		}
+		for i := 0; i < item.length; i++ {
+			covered[(position+i)%length] = true
+		}
+		cumulative += added
+		if cumulative >= length/2 {
+			return item.length
+		}
+	}
+	return 0
+}
+
+func bestPlacement(block, doubled string, length int, covered []bool) (int, int, bool) {
+	bestPosition := -1
+	bestAdded := -1
+	searchStart := 0
+	for {
+		relative := strings.Index(doubled[searchStart:], block)
+		if relative < 0 {
+			break
+		}
+		position := searchStart + relative
+		added := 0
+		for i := 0; i < len(block); i++ {
+			if !covered[(position+i)%length] {
+				added++
+			}
+		}
+		if added > bestAdded {
+			bestAdded = added
+			bestPosition = position
+		}
+		searchStart = position + 1
+	}
+	if bestPosition < 0 {
+		return 0, 0, false
+	}
+	return bestPosition, bestAdded, true
 }
 
 func referenceCoverage(contigs []string, reference string) float64 {
