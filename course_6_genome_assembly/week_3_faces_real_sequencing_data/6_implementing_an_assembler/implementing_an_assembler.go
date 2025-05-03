@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
+	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
@@ -28,21 +30,30 @@ type assemblerDataset struct {
 
 func parseAssemblerDataset(input []byte) *assemblerDataset {
 	dataset := &assemblerDataset{}
-	lines := bytes.Split(input, []byte{'\n'})
+	start := 0
 	firstData := -1
-	for i, line := range lines {
-		line = bytes.TrimSpace(line)
+	for start < len(input) {
+		line, next, ok := nextInputLine(input, start)
+		start = next
+		if !ok {
+			break
+		}
 		if len(line) == 0 {
 			continue
 		}
-		firstData = i
+		firstData = start
 		break
 	}
 	if firstData < 0 {
 		return dataset
 	}
-	for _, line := range lines[firstData+1:] {
-		line = bytes.TrimSpace(line)
+	start = firstData
+	for start < len(input) {
+		line, next, ok := nextInputLine(input, start)
+		start = next
+		if !ok {
+			break
+		}
 		if len(line) == 0 {
 			continue
 		}
@@ -51,8 +62,13 @@ func parseAssemblerDataset(input []byte) *assemblerDataset {
 			break
 		}
 	}
-	for _, line := range lines[firstData+1:] {
-		line = bytes.TrimSpace(line)
+	start = firstData
+	for start < len(input) {
+		line, next, ok := nextInputLine(input, start)
+		start = next
+		if !ok {
+			break
+		}
 		if len(line) == 0 {
 			continue
 		}
@@ -61,20 +77,29 @@ func parseAssemblerDataset(input []byte) *assemblerDataset {
 			dataset.reads = append(dataset.reads, line)
 			continue
 		}
-		fields := bytes.Split(line, []byte{'|'})
-		if len(fields) < 2 {
+		firstSeparator := bytes.IndexByte(line, '|')
+		if firstSeparator < 0 {
 			continue
 		}
-		first := bytes.TrimSpace(fields[0])
-		second := bytes.TrimSpace(fields[1])
+		secondSeparator := bytes.IndexByte(line[firstSeparator+1:], '|')
+		first := bytes.TrimSpace(line[:firstSeparator])
+		var second []byte
+		var distanceField []byte
+		if secondSeparator < 0 {
+			second = bytes.TrimSpace(line[firstSeparator+1:])
+		} else {
+			secondSeparator += firstSeparator + 1
+			second = bytes.TrimSpace(line[firstSeparator+1 : secondSeparator])
+			distanceField = bytes.TrimSpace(line[secondSeparator+1:])
+		}
 		upperInPlace(first)
 		upperInPlace(second)
 		if len(first) == 0 || len(second) == 0 {
 			continue
 		}
 		distance := 0
-		if len(fields) >= 3 {
-			if parsed, err := strconv.Atoi(string(bytes.TrimSpace(fields[2]))); err == nil {
+		if len(distanceField) > 0 {
+			if parsed, err := strconv.Atoi(string(distanceField)); err == nil {
 				distance = parsed
 			}
 		}
@@ -82,6 +107,19 @@ func parseAssemblerDataset(input []byte) *assemblerDataset {
 		dataset.reads = append(dataset.reads, first, second)
 	}
 	return dataset
+}
+
+func nextInputLine(input []byte, start int) ([]byte, int, bool) {
+	if start >= len(input) {
+		return nil, start, false
+	}
+	end := bytes.IndexByte(input[start:], '\n')
+	if end < 0 {
+		end = len(input)
+	} else {
+		end += start
+	}
+	return bytes.TrimSpace(input[start:end]), end + 1, true
 }
 
 func upperInPlace(data []byte) {
@@ -261,7 +299,7 @@ func (t *kmerTable) slot(key kmer) (int, bool) {
 }
 
 func (t *kmerTable) add(key kmer) int {
-	if t.size*5 >= len(t.keys)*4 {
+	if t.size*20 >= len(t.keys)*19 {
 		t.grow()
 	}
 	index, found := t.slot(key)
@@ -306,6 +344,14 @@ func (t *kmerTable) find(key kmer) (int, bool) {
 }
 
 func countSolidKMers(dataset *assemblerDataset, k int, canonical bool) *countedKMers {
+	return countKMers(dataset, k, canonical, false)
+}
+
+func countSolidKMersRelease(dataset *assemblerDataset, k int, canonical bool) *countedKMers {
+	return countKMers(dataset, k, canonical, true)
+}
+
+func countKMers(dataset *assemblerDataset, k int, canonical bool, releaseReads bool) *countedKMers {
 	instances := uint64(0)
 	for _, read := range dataset.reads {
 		if len(read) >= k {
@@ -315,7 +361,7 @@ func countSolidKMers(dataset *assemblerDataset, k int, canonical bool) *countedK
 	if len(dataset.reads) <= 100 || instances < 100000 {
 		return countDirect(dataset, k, canonical)
 	}
-	return countBloom(dataset, k, canonical, instances)
+	return countBloom(dataset, k, canonical, instances, releaseReads)
 }
 
 func countDirect(dataset *assemblerDataset, k int, canonical bool) *countedKMers {
@@ -338,10 +384,46 @@ func countDirect(dataset *assemblerDataset, k int, canonical bool) *countedKMers
 	return extractCounts(table, 1, total)
 }
 
-func countBloom(dataset *assemblerDataset, k int, canonical bool, total uint64) *countedKMers {
+func countDirectLarge(dataset *assemblerDataset, k int, canonical bool, total uint64, releaseReads bool) *countedKMers {
+	initial := 1 << 20
+	if total > 20_000_000 {
+		initial = 1 << 23
+	} else if total > 8_000_000 {
+		initial = 1 << 22
+	}
+	table := newKmerTable(initial)
+	eachKmer(dataset, k, canonical, func(code kmer) {
+		index := table.add(code)
+		table.counts[index]++
+	})
+	if releaseReads {
+		dataset.reads = nil
+	}
+	runtime.GC()
+	debug.FreeOSMemory()
+	return extractCounts(table, 2, total)
+}
+
+func kmerInstances(dataset *assemblerDataset, k int) uint64 {
+	total := uint64(0)
+	for _, read := range dataset.reads {
+		if len(read) >= k {
+			total += uint64(len(read) - k + 1)
+		}
+	}
+	return total
+}
+
+func countBloom(dataset *assemblerDataset, k int, canonical bool, total uint64, releaseReads bool) *countedKMers {
 	const bloomBits = uint64(1) << 29
 	bloom := make([]uint64, bloomBits/64)
-	candidate := newKmerTable(1 << 20)
+	initial := 1 << 20
+	if total > 20_000_000 {
+		initial = 1 << 23
+	} else if total > 8_000_000 {
+		initial = 1 << 22
+	}
+	candidate := newKmerTable(initial)
 	test := func(hash uint64) bool {
 		index := hash & (bloomBits - 1)
 		return bloom[index>>6]&(uint64(1)<<uint(index&63)) != 0
@@ -349,6 +431,11 @@ func countBloom(dataset *assemblerDataset, k int, canonical bool, total uint64) 
 	set := func(hash uint64) {
 		index := hash & (bloomBits - 1)
 		bloom[index>>6] |= uint64(1) << uint(index&63)
+	}
+	if os.Getenv("ASSEMBLER_DEBUG") != "" {
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+		fmt.Fprintf(os.Stderr, "bloom start heap=%dMB sys=%dMB cap=%d\n", m.HeapAlloc>>20, m.Sys>>20, len(candidate.keys))
 	}
 	eachKmer(dataset, k, canonical, func(code kmer) {
 		first := hashKmer(code)
@@ -359,11 +446,27 @@ func countBloom(dataset *assemblerDataset, k int, canonical bool, total uint64) 
 		set(first)
 		set(second)
 	})
+	if os.Getenv("ASSEMBLER_DEBUG") != "" {
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+		fmt.Fprintf(os.Stderr, "after pass1 heap=%dMB sys=%dMB cap=%d size=%d\n", m.HeapAlloc>>20, m.Sys>>20, len(candidate.keys), candidate.size)
+	}
 	eachKmer(dataset, k, canonical, func(code kmer) {
 		if index, ok := candidate.find(code); ok {
 			candidate.counts[index]++
 		}
 	})
+	if os.Getenv("ASSEMBLER_DEBUG") != "" {
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+		fmt.Fprintf(os.Stderr, "after pass2 heap=%dMB sys=%dMB cap=%d size=%d\n", m.HeapAlloc>>20, m.Sys>>20, len(candidate.keys), candidate.size)
+	}
+	if releaseReads {
+		dataset.reads = nil
+	}
+	bloom = nil
+	runtime.GC()
+	debug.FreeOSMemory()
 	return extractCounts(candidate, 2, total)
 }
 
@@ -405,6 +508,27 @@ func extractCounts(table *kmerTable, minCount uint32, total uint64) *countedKMer
 	sort.Sort(kmerCountSorter{keys: result.keys, counts: result.counts})
 	if len(result.keys) > 0 {
 		result.estimatedCoverage = float64(total) / float64(len(result.keys))
+		maxCount := uint32(0)
+		for _, count := range result.counts {
+			if count > maxCount {
+				maxCount = count
+			}
+		}
+		histogram := make([]int, maxCount+1)
+		for _, count := range result.counts {
+			histogram[count]++
+		}
+		mode := 0
+		modeCount := 0
+		for count := 3; count < len(histogram); count++ {
+			if histogram[count] > modeCount {
+				modeCount = histogram[count]
+				mode = count
+			}
+		}
+		if mode > 0 {
+			result.estimatedCoverage = float64(mode)
+		}
 	}
 	return result
 }
@@ -521,6 +645,45 @@ func (c *countedKMers) uniqueOut(vertex kmer, k int) (kmer, bool) {
 	return next, found
 }
 
+func (c *countedKMers) vertexInLive(vertex kmer, k int, removed []bool) int {
+	degree := 0
+	for base := byte(0); base < 4; base++ {
+		index := c.index(prependCode(vertex, base, k))
+		if index >= 0 && !removed[index] {
+			degree++
+		}
+	}
+	return degree
+}
+
+func (c *countedKMers) vertexOutLive(vertex kmer, k int, removed []bool) int {
+	degree := 0
+	for base := byte(0); base < 4; base++ {
+		index := c.index(vertex.appendCode(base, k))
+		if index >= 0 && !removed[index] {
+			degree++
+		}
+	}
+	return degree
+}
+
+func (c *countedKMers) uniqueOutLive(vertex kmer, k int, removed []bool) (kmer, bool) {
+	var next kmer
+	found := false
+	for base := byte(0); base < 4; base++ {
+		candidate := vertex.appendCode(base, k)
+		index := c.index(candidate)
+		if index >= 0 && !removed[index] {
+			if found {
+				return kmer{}, false
+			}
+			next = candidate
+			found = true
+		}
+	}
+	return next, found
+}
+
 func buildUnitigs(counts *countedKMers, k int, removed []bool) []unitig {
 	used := make([]bool, len(counts.keys))
 	units := make([]unitig, 0)
@@ -531,10 +694,10 @@ func buildUnitigs(counts *countedKMers, k int, removed []bool) []unitig {
 			used[current] = true
 			unit.edges = append(unit.edges, int32(current))
 			destination := counts.keys[current].suffix(k)
-			if counts.vertexIn(destination, k) != 1 || counts.vertexOut(destination, k) != 1 {
+			if counts.vertexInLive(destination, k, removed) != 1 || counts.vertexOutLive(destination, k, removed) != 1 {
 				break
 			}
-			next, ok := counts.uniqueOut(destination, k)
+			next, ok := counts.uniqueOutLive(destination, k, removed)
 			if !ok {
 				break
 			}
@@ -563,7 +726,7 @@ func buildUnitigs(counts *countedKMers, k int, removed []bool) []unitig {
 		}
 		source := key.prefix()
 		destination := key.suffix(k)
-		if counts.vertexIn(source, k) == 1 && counts.vertexOut(source, k) == 1 && counts.vertexIn(destination, k) == 1 {
+		if counts.vertexInLive(source, k, removed) == 1 && counts.vertexOutLive(source, k, removed) == 1 && counts.vertexInLive(destination, k, removed) == 1 {
 			continue
 		}
 		units = append(units, walk(index))
@@ -645,31 +808,34 @@ func assembleAtK(counts *countedKMers, cfg assemblyConfig) []string {
 	if maxLength < 500 {
 		maxLength = 500
 	}
-	threshold := 0.20 * counts.estimatedCoverage
-	if threshold < 2 {
-		threshold = 2
+	threshold := 0.30 * counts.estimatedCoverage
+	if threshold < 3 {
+		threshold = 3
 	}
-	for pass := 0; pass < 10 && filter; pass++ {
+	if forced := os.Getenv("ASSEMBLER_THRESHOLD"); forced != "" {
+		if value, err := strconv.ParseFloat(forced, 64); err == nil {
+			threshold = value
+		}
+	}
+	if os.Getenv("ASSEMBLER_DEBUG") != "" {
+		fmt.Fprintf(os.Stderr, "k=%d keys=%d coverage=%.1f threshold=%.1f filter=%v\n", cfg.k, len(counts.keys), counts.estimatedCoverage, threshold, filter)
+	}
+	for pass := 0; pass < 20 && filter; pass++ {
 		units := buildUnitigs(counts, cfg.k, removed)
 		changed := false
 		for _, unit := range units {
 			if len(unit.edges) == 0 || len(unit.edges) > maxLength {
 				continue
 			}
-			remove := unit.coverage < threshold
-			if !remove {
-				first := counts.keys[unit.edges[0]]
-				last := counts.keys[unit.edges[len(unit.edges)-1]]
-				source := first.prefix()
-				destination := last.suffix(cfg.k)
-				remove = counts.vertexIn(source, cfg.k) == 0 || counts.vertexOut(destination, cfg.k) == 0
-			}
-			if remove {
+			if unit.coverage < threshold {
 				for _, edge := range unit.edges {
 					removed[edge] = true
 				}
 				changed = true
 			}
+		}
+		if os.Getenv("ASSEMBLER_DEBUG") != "" {
+			fmt.Fprintf(os.Stderr, "pass=%d units=%d changed=%v\n", pass, len(units), changed)
 		}
 		if !changed {
 			break
@@ -845,50 +1011,142 @@ func assembleDataset(dataset *assemblerDataset) []string {
 	if detectionK > median {
 		detectionK = median
 	}
-	if detectionK < 2 {
+	errorFraction := 0.0
+	if detectionK >= 2 {
+		errorFraction = detectErrorFraction(dataset, detectionK)
+	}
+	runtime.GC()
+	debug.FreeOSMemory()
+	sample := sampleDataset(dataset, 1000)
+	if os.Getenv("ASSEMBLER_DEBUG") != "" {
+		fmt.Fprintf(os.Stderr, "detectionK=%d errorFraction=%.4f kMax=%d median=%d\n", detectionK, errorFraction, kMax, median)
+	}
+	chosenK := kMax
+	if errorFraction > 0.25 {
+		chosenK = 31
+		if kMax >= 37 && median >= 37 {
+			chosenK = 37
+		}
+	}
+	if chosenK > median {
+		chosenK = median
+	}
+	if chosenK < 3 {
+		chosenK = kMax
+	}
+	if chosenK < 2 {
 		return nil
 	}
-	detectionCounts := countSolidKMers(dataset, detectionK, false)
-	canonical := isDoubleStranded(dataset, detectionCounts, detectionK)
-	errorFraction := estimateErrorFraction(dataset, detectionCounts, detectionK)
-	candidates := make([]int, 0, 4)
-	if errorFraction > 0.10 {
-		candidates = append(candidates, 31, 37)
+	readLimit := 1000000
+	if forced := os.Getenv("ASSEMBLER_LIMIT"); forced != "" {
+		if value, err := strconv.Atoi(forced); err == nil && value > 0 {
+			readLimit = value
+		}
+	}
+	if errorFraction > 0.10 && !dataset.paired && len(dataset.reads) > readLimit {
+		dataset.reads = dataset.reads[:readLimit]
+	}
+	if forced := os.Getenv("ASSEMBLER_K"); forced != "" {
+		if value, err := strconv.Atoi(forced); err == nil && value >= 2 && value <= kMax {
+			chosenK = value
+		}
+	}
+	var counts *countedKMers
+	if errorFraction <= 0.25 {
+		counts = countDirectLarge(dataset, chosenK, false, kmerInstances(dataset, chosenK), true)
 	} else {
-		candidates = append(candidates, 45, 55, 61)
+		counts = countSolidKMersRelease(dataset, chosenK, false)
 	}
-	candidates = append(candidates, kMax)
-	seen := make(map[int]bool)
-	best := []string(nil)
-	bestScore := -1.0
-	bestK := 0
-	for _, k := range candidates {
-		if k < 3 || k > kMax || k > median || seen[k] {
-			continue
-		}
-		seen[k] = true
-		counts := detectionCounts
-		if k != detectionK {
-			counts = countSolidKMers(dataset, k, false)
-		}
-		contigs := assembleAtK(counts, assemblyConfig{k: k, minCount: 2, filter: true})
-		if len(contigs) == 0 {
-			continue
-		}
-		score := assemblyScore(contigs, float64(len(detectionCounts.keys)))
-		if score > bestScore || (score == bestScore && k > bestK) {
-			best = contigs
-			bestScore = score
-			bestK = k
-		}
-	}
-	if best == nil {
-		best = assembleAtK(detectionCounts, assemblyConfig{k: detectionK, minCount: 1})
+	canonical := isDoubleStranded(sample, counts, chosenK)
+	contigs := assembleAtK(counts, assemblyConfig{k: chosenK, minCount: 2, filter: true})
+	if len(contigs) == 0 {
+		contigs = assembleAtK(counts, assemblyConfig{k: chosenK, minCount: 1})
 	}
 	if canonical {
-		return canonicalContigs(best)
+		return canonicalContigs(contigs)
 	}
-	return best
+	return contigs
+}
+
+func detectErrorFraction(dataset *assemblerDataset, k int) float64 {
+	const bloomBits = uint64(1) << 28
+	seen := make([]uint64, bloomBits/64)
+	twice := make([]uint64, bloomBits/64)
+	thrice := make([]uint64, bloomBits/64)
+	test := func(bits []uint64, hash uint64) bool {
+		index := hash & (bloomBits - 1)
+		return bits[index>>6]&(uint64(1)<<uint(index&63)) != 0
+	}
+	set := func(bits []uint64, hash uint64) {
+		index := hash & (bloomBits - 1)
+		bits[index>>6] |= uint64(1) << uint(index&63)
+	}
+	limit := len(dataset.reads)
+	if limit > 300000 {
+		limit = 300000
+	}
+	for _, read := range dataset.reads[:limit] {
+		for start := 0; start+k <= len(read); start++ {
+			code, ok := encodeKmer(read[start:start+k], k)
+			if !ok {
+				continue
+			}
+			first := hashKmer(code)
+			second := hashKmer(kmer{lo: code.hi + 0x9e3779b97f4a7c15, hi: code.lo})
+			if test(twice, first) && test(twice, second) {
+				set(thrice, first)
+				set(thrice, second)
+			}
+			if test(seen, first) && test(seen, second) {
+				set(twice, first)
+				set(twice, second)
+			}
+			set(seen, first)
+			set(seen, second)
+		}
+	}
+	step := limit / 1000
+	if step < 1 {
+		step = 1
+	}
+	absent := 0
+	total := 0
+	for index := 0; index < limit; index += step {
+		read := dataset.reads[index]
+		for start := 0; start+k <= len(read); start++ {
+			code, ok := encodeKmer(read[start:start+k], k)
+			if !ok {
+				continue
+			}
+			first := hashKmer(code)
+			second := hashKmer(kmer{lo: code.hi + 0x9e3779b97f4a7c15, hi: code.lo})
+			total++
+			if !test(thrice, first) || !test(thrice, second) {
+				absent++
+			}
+		}
+	}
+	if total == 0 {
+		return 0
+	}
+	return float64(absent) / float64(total)
+}
+
+func sampleDataset(dataset *assemblerDataset, limit int) *assemblerDataset {
+	if len(dataset.reads) <= limit {
+		return dataset
+	}
+	step := len(dataset.reads) / limit
+	if step < 1 {
+		step = 1
+	}
+	sample := &assemblerDataset{paired: dataset.paired}
+	for index := 0; index < len(dataset.reads) && len(sample.reads) < limit; index += step {
+		read := make([]byte, len(dataset.reads[index]))
+		copy(read, dataset.reads[index])
+		sample.reads = append(sample.reads, read)
+	}
+	return sample
 }
 
 type contigHit struct {
@@ -1133,9 +1391,25 @@ func assembleContigs(reads []string) string {
 	return formatFASTA(assembleDataset(dataset))
 }
 
+func readAllStdin() []byte {
+	if info, err := os.Stdin.Stat(); err == nil && info.Size() > 0 {
+		data := make([]byte, info.Size())
+		read, err := io.ReadFull(os.Stdin, data)
+		if err == nil || err == io.ErrUnexpectedEOF || err == io.EOF {
+			return data[:read]
+		}
+	}
+	data, _ := io.ReadAll(os.Stdin)
+	return data
+}
+
 func main() {
-	input, _ := io.ReadAll(os.Stdin)
+	debug.SetGCPercent(50)
+	debug.SetMemoryLimit(420 << 20)
+	input := readAllStdin()
 	dataset := parseAssemblerDataset(input)
+	input = nil
+	runtime.GC()
 	contigs := assembleDataset(dataset)
 	if dataset.paired {
 		contigs = scaffoldContigs(contigs, dataset.pairs, 21)

@@ -185,6 +185,33 @@ func TestCanonicalContigs(t *testing.T) {
 	}
 }
 
+func TestKmerTableGrows(t *testing.T) {
+	table := newKmerTable(16)
+	for i := 0; i < 200; i++ {
+		table.add(kmer{lo: uint64(i)})
+	}
+	if len(table.keys) <= 16 {
+		t.Fatalf("table capacity = %d, want growth", len(table.keys))
+	}
+	for i := 0; i < 200; i++ {
+		if _, ok := table.find(kmer{lo: uint64(i)}); !ok {
+			t.Fatalf("missing key %d", i)
+		}
+	}
+}
+
+func TestDetectErrorFractionCleanVsErrors(t *testing.T) {
+	genome := randomDNA(7, 2000)
+	clean := detectErrorFraction(&assemblerDataset{reads: circularReads(genome, 30, 100)}, 31)
+	if clean > 0.10 {
+		t.Fatalf("clean error fraction = %v", clean)
+	}
+	erroneous := detectErrorFraction(&assemblerDataset{reads: circularReadsWithErrors(genome, 600, 100, 1)}, 31)
+	if erroneous < 0.25 {
+		t.Fatalf("error-prone fraction = %v", erroneous)
+	}
+}
+
 func TestAssembleDatasetSingle(t *testing.T) {
 	genome := randomDNA(42, 200)
 	reads := circularReads(genome, 40, 20)
