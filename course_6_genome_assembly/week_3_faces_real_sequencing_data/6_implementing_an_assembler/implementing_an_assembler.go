@@ -432,11 +432,6 @@ func countBloom(dataset *assemblerDataset, k int, canonical bool, total uint64, 
 		index := hash & (bloomBits - 1)
 		bloom[index>>6] |= uint64(1) << uint(index&63)
 	}
-	if os.Getenv("ASSEMBLER_DEBUG") != "" {
-		var m runtime.MemStats
-		runtime.ReadMemStats(&m)
-		fmt.Fprintf(os.Stderr, "bloom start heap=%dMB sys=%dMB cap=%d\n", m.HeapAlloc>>20, m.Sys>>20, len(candidate.keys))
-	}
 	eachKmer(dataset, k, canonical, func(code kmer) {
 		first := hashKmer(code)
 		second := hashKmer(kmer{lo: code.hi + 0x9e3779b97f4a7c15, hi: code.lo})
@@ -446,21 +441,11 @@ func countBloom(dataset *assemblerDataset, k int, canonical bool, total uint64, 
 		set(first)
 		set(second)
 	})
-	if os.Getenv("ASSEMBLER_DEBUG") != "" {
-		var m runtime.MemStats
-		runtime.ReadMemStats(&m)
-		fmt.Fprintf(os.Stderr, "after pass1 heap=%dMB sys=%dMB cap=%d size=%d\n", m.HeapAlloc>>20, m.Sys>>20, len(candidate.keys), candidate.size)
-	}
 	eachKmer(dataset, k, canonical, func(code kmer) {
 		if index, ok := candidate.find(code); ok {
 			candidate.counts[index]++
 		}
 	})
-	if os.Getenv("ASSEMBLER_DEBUG") != "" {
-		var m runtime.MemStats
-		runtime.ReadMemStats(&m)
-		fmt.Fprintf(os.Stderr, "after pass2 heap=%dMB sys=%dMB cap=%d size=%d\n", m.HeapAlloc>>20, m.Sys>>20, len(candidate.keys), candidate.size)
-	}
 	if releaseReads {
 		dataset.reads = nil
 	}
@@ -812,14 +797,6 @@ func assembleAtK(counts *countedKMers, cfg assemblyConfig) []string {
 	if threshold < 3 {
 		threshold = 3
 	}
-	if forced := os.Getenv("ASSEMBLER_THRESHOLD"); forced != "" {
-		if value, err := strconv.ParseFloat(forced, 64); err == nil {
-			threshold = value
-		}
-	}
-	if os.Getenv("ASSEMBLER_DEBUG") != "" {
-		fmt.Fprintf(os.Stderr, "k=%d keys=%d coverage=%.1f threshold=%.1f filter=%v\n", cfg.k, len(counts.keys), counts.estimatedCoverage, threshold, filter)
-	}
 	for pass := 0; pass < 20 && filter; pass++ {
 		units := buildUnitigs(counts, cfg.k, removed)
 		changed := false
@@ -833,9 +810,6 @@ func assembleAtK(counts *countedKMers, cfg assemblyConfig) []string {
 				}
 				changed = true
 			}
-		}
-		if os.Getenv("ASSEMBLER_DEBUG") != "" {
-			fmt.Fprintf(os.Stderr, "pass=%d units=%d changed=%v\n", pass, len(units), changed)
 		}
 		if !changed {
 			break
@@ -1018,9 +992,6 @@ func assembleDataset(dataset *assemblerDataset) []string {
 	runtime.GC()
 	debug.FreeOSMemory()
 	sample := sampleDataset(dataset, 1000)
-	if os.Getenv("ASSEMBLER_DEBUG") != "" {
-		fmt.Fprintf(os.Stderr, "detectionK=%d errorFraction=%.4f kMax=%d median=%d\n", detectionK, errorFraction, kMax, median)
-	}
 	chosenK := kMax
 	if errorFraction > 0.25 {
 		chosenK = 31
@@ -1038,18 +1009,8 @@ func assembleDataset(dataset *assemblerDataset) []string {
 		return nil
 	}
 	readLimit := 1000000
-	if forced := os.Getenv("ASSEMBLER_LIMIT"); forced != "" {
-		if value, err := strconv.Atoi(forced); err == nil && value > 0 {
-			readLimit = value
-		}
-	}
 	if errorFraction > 0.10 && !dataset.paired && len(dataset.reads) > readLimit {
 		dataset.reads = dataset.reads[:readLimit]
-	}
-	if forced := os.Getenv("ASSEMBLER_K"); forced != "" {
-		if value, err := strconv.Atoi(forced); err == nil && value >= 2 && value <= kMax {
-			chosenK = value
-		}
 	}
 	var counts *countedKMers
 	if errorFraction <= 0.25 {

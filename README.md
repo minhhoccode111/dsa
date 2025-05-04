@@ -23,6 +23,34 @@ This repository contains both Python and Go implementations of the assignments. 
 
 ## Course 6 - [Genome Assembly Programming Challenge](https://www.coursera.org/learn/assembling-genomes)
 
+### Final project: Implementing an Assembler
+
+`course_6_genome_assembly/week_3_faces_real_sequencing_data/6_implementing_an_assembler/implementing_an_assembler.go`
+is a single-file Go assembler for the final project.
+
+Input is either:
+
+- a read count followed by one read per line, or
+- a read-pair count followed by `READ1|READ2|d` lines.
+
+Output is FASTA. Run it with:
+
+```bash
+go run course_6_genome_assembly/week_3_faces_real_sequencing_data/6_implementing_an_assembler/implementing_an_assembler.go < dataset.txt
+```
+
+The implementation uses solid k-mers, implicit de Bruijn unitigs, low-coverage
+tip removal, candidate k selection, and read-pair scaffolding. It detects
+error-prone datasets and keeps the 1.4 million read case within the Coursera
+time and memory limits.
+
+`dataset.txt` and `genome.txt` are optional local fixtures. They are not
+committed. The visible-dataset test skips when they are absent:
+
+```bash
+go test -run TestVisibleDatasetAssembly ./course_6_genome_assembly/week_3_faces_real_sequencing_data/6_implementing_an_assembler -v
+```
+
 ## References
 
 - Algorithms (1st Edition). Sanjoy Dasgupta, Christos Papadimitriou, and Umesh Vazirani {1}
