@@ -40,9 +40,16 @@ go run course_6_genome_assembly/week_3_faces_real_sequencing_data/6_implementing
 ```
 
 The implementation uses solid k-mers, implicit de Bruijn unitigs, low-coverage
-tip removal, candidate k selection, and read-pair scaffolding. It detects
-error-prone datasets and keeps the 1.4 million read case within the Coursera
-time and memory limits.
+tip removal, Bloom-based read correction for error-prone data, and end-aware
+read-pair scaffolding. Scaffolding is skipped after read correction because
+residual corrected-read ambiguities produced chimeric links on the error-prone
+pair proxy; those pairs keep their contigs instead. On local E. coli proxies it
+produced NGA50 47,576 for 1.4M error-prone single reads, 47,120 for 1.4M
+error-free single reads, 49,772 for 700,000 error-prone read-pairs, and 82,574
+for 700,000 error-free read-pairs. The read-pair proxy took 86 s and
+548 MB; the correction proxy took 119 s and 1.75 GB. Both are inside the
+grader's observed 450 s and 4 GB limits. Hidden dataset quality is still not
+guaranteed.
 
 `dataset.txt` and `genome.txt` are optional local fixtures. They are not
 committed. The visible-dataset test skips when they are absent:

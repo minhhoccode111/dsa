@@ -23,9 +23,10 @@ type readPair struct {
 }
 
 type assemblerDataset struct {
-	reads  [][]byte
-	pairs  []readPair
-	paired bool
+	reads     [][]byte
+	pairs     []readPair
+	paired    bool
+	corrected bool
 }
 
 func parseAssemblerDataset(input []byte) *assemblerDataset {
@@ -299,7 +300,7 @@ func (t *kmerTable) slot(key kmer) (int, bool) {
 }
 
 func (t *kmerTable) add(key kmer) int {
-	if t.size*20 >= len(t.keys)*19 {
+	if (t.size+1)*20 >= len(t.keys)*19 {
 		t.grow()
 	}
 	index, found := t.slot(key)
@@ -358,7 +359,7 @@ func countKMers(dataset *assemblerDataset, k int, canonical bool, releaseReads b
 			instances += uint64(len(read) - k + 1)
 		}
 	}
-	if len(dataset.reads) <= 100 || instances < 100000 {
+	if len(dataset.reads) <= 100 || instances < 500000 {
 		return countDirect(dataset, k, canonical)
 	}
 	return countBloom(dataset, k, canonical, instances, releaseReads)
@@ -401,7 +402,7 @@ func countDirectLarge(dataset *assemblerDataset, k int, canonical bool, total ui
 	}
 	runtime.GC()
 	debug.FreeOSMemory()
-	return extractCounts(table, 2, total)
+	return extractCounts(table, 1, total)
 }
 
 func kmerInstances(dataset *assemblerDataset, k int) uint64 {
@@ -493,15 +494,12 @@ func extractCounts(table *kmerTable, minCount uint32, total uint64) *countedKMer
 	sort.Sort(kmerCountSorter{keys: result.keys, counts: result.counts})
 	if len(result.keys) > 0 {
 		result.estimatedCoverage = float64(total) / float64(len(result.keys))
-		maxCount := uint32(0)
+		const maxHistogramCount = 4096
+		histogram := make([]int, maxHistogramCount+1)
 		for _, count := range result.counts {
-			if count > maxCount {
-				maxCount = count
+			if count <= maxHistogramCount {
+				histogram[count]++
 			}
-		}
-		histogram := make([]int, maxCount+1)
-		for _, count := range result.counts {
-			histogram[count]++
 		}
 		mode := 0
 		modeCount := 0
@@ -887,19 +885,18 @@ func isDoubleStranded(dataset *assemblerDataset, counts *countedKMers, k int) bo
 }
 
 func canonicalContigs(contigs []string) []string {
-	unique := make(map[string]bool, len(contigs))
+	unique := make(map[string]string, len(contigs))
 	for _, contig := range contigs {
 		if contig == "" {
 			continue
 		}
-		reverse := string(reverseComplementSequence([]byte(contig)))
-		if reverse < contig {
-			contig = reverse
+		key := canonicalCircular(contig)
+		if existing, ok := unique[key]; !ok || contig < existing {
+			unique[key] = contig
 		}
-		unique[contig] = true
 	}
 	result := make([]string, 0, len(unique))
-	for contig := range unique {
+	for _, contig := range unique {
 		result = append(result, contig)
 	}
 	sort.Strings(result)
@@ -918,36 +915,6 @@ func medianReadLength(dataset *assemblerDataset) int {
 	}
 	sort.Ints(lengths)
 	return lengths[len(lengths)/2]
-}
-
-func assemblyScore(contigs []string, genomeEstimate float64) float64 {
-	lengths := make([]int, 0, len(contigs))
-	total := 0
-	for _, contig := range contigs {
-		lengths = append(lengths, len(contig))
-		total += len(contig)
-	}
-	if len(lengths) == 0 {
-		return 0
-	}
-	sort.Sort(sort.Reverse(sort.IntSlice(lengths)))
-	accumulated := 0
-	n50 := 0
-	for _, length := range lengths {
-		accumulated += length
-		if float64(accumulated) >= float64(total)/2 {
-			n50 = length
-			break
-		}
-	}
-	fraction := 1.0
-	if genomeEstimate > 0 {
-		fraction = float64(total) / genomeEstimate
-		if fraction > 1 {
-			fraction = 1
-		}
-	}
-	return float64(n50) * fraction
 }
 
 func assembleDataset(dataset *assemblerDataset) []string {
@@ -989,11 +956,33 @@ func assembleDataset(dataset *assemblerDataset) []string {
 	if detectionK >= 2 {
 		errorFraction = detectErrorFraction(dataset, detectionK)
 	}
+	if errorFraction > 0.10 && len(dataset.reads) >= 50000 {
+		correctionK := 31
+		if correctionK > kMax {
+			correctionK = kMax
+		}
+		if correctionK > median {
+			correctionK = median
+		}
+		if correctionK >= 2 {
+			solid := solidKMersForCorrection(dataset, correctionK, 3)
+			bloom := buildKmerBloom(solid.keys)
+			corrected, attempted := correctReads(dataset, correctionK, bloom)
+			solid = nil
+			bloom = nil
+			runtime.GC()
+			debug.FreeOSMemory()
+			if attempted == 0 || corrected*2 >= attempted {
+				errorFraction = 0
+				dataset.corrected = true
+			}
+		}
+	}
 	runtime.GC()
 	debug.FreeOSMemory()
 	sample := sampleDataset(dataset, 1000)
 	chosenK := kMax
-	if errorFraction > 0.25 {
+	if errorFraction > 0.10 {
 		chosenK = 31
 		if kMax >= 37 && median >= 37 {
 			chosenK = 37
@@ -1013,7 +1002,7 @@ func assembleDataset(dataset *assemblerDataset) []string {
 		dataset.reads = dataset.reads[:readLimit]
 	}
 	var counts *countedKMers
-	if errorFraction <= 0.25 {
+	if errorFraction <= 0.10 {
 		counts = countDirectLarge(dataset, chosenK, false, kmerInstances(dataset, chosenK), true)
 	} else {
 		counts = countSolidKMersRelease(dataset, chosenK, false)
@@ -1093,10 +1082,120 @@ func detectErrorFraction(dataset *assemblerDataset, k int) float64 {
 	return float64(absent) / float64(total)
 }
 
-func sampleDataset(dataset *assemblerDataset, limit int) *assemblerDataset {
-	if len(dataset.reads) <= limit {
-		return dataset
+func solidKMersForCorrection(dataset *assemblerDataset, k int, minCount uint32) *countedKMers {
+	total := kmerInstances(dataset, k)
+	initial := 1 << 20
+	if total > 20_000_000 {
+		initial = 1 << 26
+	} else if total > 8_000_000 {
+		initial = 1 << 24
 	}
+	table := newKmerTable(initial)
+	eachKmer(dataset, k, false, func(code kmer) {
+		index := table.add(code)
+		table.counts[index]++
+	})
+	return extractCounts(table, minCount, total)
+}
+
+type kmerBloom struct {
+	bits []uint64
+}
+
+func buildKmerBloom(keys []kmer) *kmerBloom {
+	const bloomBits = uint64(1) << 30
+	bloom := &kmerBloom{bits: make([]uint64, bloomBits/64)}
+	for _, code := range keys {
+		first := hashKmer(code)
+		second := hashKmer(kmer{lo: code.hi + 0x9e3779b97f4a7c15, hi: code.lo})
+		index := first & (bloomBits - 1)
+		bloom.bits[index>>6] |= uint64(1) << uint(index&63)
+		index = second & (bloomBits - 1)
+		bloom.bits[index>>6] |= uint64(1) << uint(index&63)
+	}
+	return bloom
+}
+
+func (b *kmerBloom) contains(code kmer) bool {
+	const bloomBits = uint64(1) << 30
+	first := hashKmer(code)
+	second := hashKmer(kmer{lo: code.hi + 0x9e3779b97f4a7c15, hi: code.lo})
+	index := first & (bloomBits - 1)
+	if b.bits[index>>6]&(uint64(1)<<uint(index&63)) == 0 {
+		return false
+	}
+	index = second & (bloomBits - 1)
+	return b.bits[index>>6]&(uint64(1)<<uint(index&63)) != 0
+}
+
+func correctReads(dataset *assemblerDataset, k int, bloom *kmerBloom) (int, int) {
+	corrected := 0
+	attempted := 0
+	for _, read := range dataset.reads {
+		if len(read) < k {
+			continue
+		}
+		for round := 0; round < 3; round++ {
+			bad := -1
+			for start := 0; start+k <= len(read); start++ {
+				code, ok := encodeKmer(read[start:start+k], k)
+				if !ok {
+					continue
+				}
+				if !bloom.contains(code) {
+					bad = start
+					break
+				}
+			}
+			if bad < 0 {
+				break
+			}
+			attempted++
+			if !correctReadAt(read, bad, k, bloom) {
+				break
+			}
+			corrected++
+		}
+	}
+	return corrected, attempted
+}
+
+func correctReadAt(read []byte, bad, k int, bloom *kmerBloom) bool {
+	for position := bad; position < bad+k && position < len(read); position++ {
+		original := read[position]
+		for _, base := range []byte("ACGT") {
+			if base == original {
+				continue
+			}
+			read[position] = base
+			if localKmersSolid(read, position, k, bloom) {
+				return true
+			}
+			read[position] = original
+		}
+	}
+	return false
+}
+
+func localKmersSolid(read []byte, position, k int, bloom *kmerBloom) bool {
+	low := position - k + 1
+	if low < 0 {
+		low = 0
+	}
+	high := position
+	if high > len(read)-k {
+		high = len(read) - k
+	}
+	for start := low; start <= high; start++ {
+		code, ok := encodeKmer(read[start:start+k], k)
+		if !ok || !bloom.contains(code) {
+			return false
+		}
+	}
+	return true
+}
+
+func sampleDataset(dataset *assemblerDataset, limit int) *assemblerDataset {
 	step := len(dataset.reads) / limit
 	if step < 1 {
 		step = 1
@@ -1190,77 +1289,135 @@ func mapRead(read []byte, index map[uint64]contigHit, k int) (contigHit, bool) {
 type contigLink struct {
 	from     int
 	fromRev  bool
+	fromEnd  int8
 	to       int
 	toRev    bool
+	toEnd    int8
 	support  int
 	gapTotal int
 }
 
-func scaffoldContigs(contigs []string, pairs []readPair, seedK int) []string {
-	if len(contigs) < 2 || len(pairs) == 0 {
-		return contigs
+type linkEnd struct {
+	contig int
+	end    int8
+	rev    bool
+}
+
+func validMapping(hit contigHit, contigLength, readLength int) bool {
+	if hit.contig < 0 || readLength <= 0 {
+		return false
 	}
-	minLength := 0
-	for _, pair := range pairs {
-		length := len(pair.first)
-		if len(pair.second) < length {
-			length = len(pair.second)
-		}
-		if minLength == 0 || length < minLength {
-			minLength = length
-		}
+	if hit.strand > 0 {
+		return hit.start >= 0 && hit.start+readLength <= contigLength
 	}
-	if seedK > minLength {
-		seedK = minLength
-	}
-	if seedK < 8 {
-		return contigs
-	}
-	index := buildContigIndex(contigs, seedK)
+	return hit.start-readLength+1 >= 0 && hit.start < contigLength
+}
+
+type mappedReadPair struct {
+	first  contigHit
+	second contigHit
+	ok     bool
+}
+
+func buildScaffoldLinks(mapped []mappedReadPair, contigs []string, insert int, fr bool) []contigLink {
 	links := make(map[contigLink]*contigLink)
-	for _, pair := range pairs {
-		first, okFirst := mapRead(pair.first, index, seedK)
-		second, okSecond := mapRead(pair.second, index, seedK)
-		if !okFirst || !okSecond || first.contig == second.contig {
+	for _, item := range mapped {
+		if !item.ok || item.first.contig == item.second.contig {
 			continue
 		}
-		fromRev := first.strand < 0
-		toRev := second.strand < 0
-		firstStart := first.start
+		from := item.first
+		to := item.second
+		fromRev := from.strand < 0
+		toRev := to.strand < 0
+		if fr {
+			toRev = to.strand > 0
+		}
+		fromStart := from.start
 		if fromRev {
-			firstStart = len(contigs[first.contig]) - 1 - firstStart
+			fromStart = len(contigs[from.contig]) - 1 - fromStart
 		}
-		secondStart := second.start
+		toStart := to.start
 		if toRev {
-			secondStart = len(contigs[second.contig]) - 1 - secondStart
+			toStart = len(contigs[to.contig]) - 1 - toStart
 		}
-		gap := pair.distance - (len(contigs[first.contig]) - firstStart) - secondStart
-		key := contigLink{from: first.contig, fromRev: fromRev, to: second.contig, toRev: toRev}
+		gap := insert - (len(contigs[from.contig]) - fromStart) - toStart
+		fromEnd := int8(1)
+		if fromRev {
+			fromEnd = 0
+		}
+		toEnd := int8(0)
+		if toRev {
+			toEnd = 1
+		}
+		key := contigLink{
+			from: from.contig, fromRev: fromRev, fromEnd: fromEnd,
+			to: to.contig, toRev: toRev, toEnd: toEnd,
+		}
 		entry := links[key]
 		if entry == nil {
-			entry = &contigLink{from: key.from, fromRev: key.fromRev, to: key.to, toRev: key.toRev}
+			entry = &contigLink{
+				from: from.contig, fromRev: fromRev, fromEnd: fromEnd,
+				to: to.contig, toRev: toRev, toEnd: toEnd,
+			}
 			links[key] = entry
 		}
 		entry.support++
 		entry.gapTotal += gap
 	}
-	ordered := make([]contigLink, 0, len(links))
-	for _, link := range links {
-		ordered = append(ordered, *link)
-	}
-	sort.Slice(ordered, func(i, j int) bool {
-		if ordered[i].support != ordered[j].support {
-			return ordered[i].support > ordered[j].support
+
+	outBest := make(map[linkEnd]int)
+	outSecond := make(map[linkEnd]int)
+	inBest := make(map[linkEnd]int)
+	inSecond := make(map[linkEnd]int)
+	update := func(best, second map[linkEnd]int, key linkEnd, support int) {
+		if support > best[key] {
+			second[key] = best[key]
+			best[key] = support
+		} else if support > second[key] {
+			second[key] = support
 		}
-		return ordered[i].gapTotal/ordered[i].support < ordered[j].gapTotal/ordered[j].support
+	}
+	for _, link := range links {
+		update(outBest, outSecond, linkEnd{link.from, link.fromEnd, link.fromRev}, link.support)
+		update(inBest, inSecond, linkEnd{link.to, link.toEnd, link.toRev}, link.support)
+	}
+
+	selected := make([]contigLink, 0, len(links))
+	for _, link := range links {
+		fromKey := linkEnd{link.from, link.fromEnd, link.fromRev}
+		toKey := linkEnd{link.to, link.toEnd, link.toRev}
+		if link.support < 3 {
+			continue
+		}
+		if link.support < 2*outSecond[fromKey] || link.support < 2*inSecond[toKey] {
+			continue
+		}
+		if link.support != outBest[fromKey] || link.support != inBest[toKey] {
+			continue
+		}
+		selected = append(selected, *link)
+	}
+	sort.Slice(selected, func(i, j int) bool {
+		if selected[i].support != selected[j].support {
+			return selected[i].support > selected[j].support
+		}
+		return selected[i].gapTotal/selected[i].support < selected[j].gapTotal/selected[j].support
 	})
+	return selected
+}
+
+func mergeScaffoldLinks(contigs []string, links []contigLink, seedK int) []string {
 	active := make([]bool, len(contigs))
 	sequences := append([]string(nil), contigs...)
 	for i := range active {
 		active[i] = true
 	}
-	for _, link := range ordered {
-		if link.support < 3 || !active[link.from] || !active[link.to] {
+	usedEnds := make([][2]bool, len(contigs))
+	for _, link := range links {
+		if !active[link.from] || !active[link.to] {
+			continue
+		}
+		if usedEnds[link.from][link.fromEnd] || usedEnds[link.to][link.toEnd] {
 			continue
 		}
 		from := sequences[link.from]
@@ -1286,12 +1443,12 @@ func scaffoldContigs(contigs []string, pairs []readPair, seedK int) []string {
 			overlap = 0
 		}
 		var merged string
-		if overlap > 0 && strings.HasSuffix(from, to[:overlap]) {
+		if overlap >= seedK && strings.HasSuffix(from, to[:overlap]) {
 			merged = from + to[overlap:]
 		} else {
 			gapSize := gap
-			if gapSize < 1 {
-				gapSize = 1
+			if gapSize < 0 {
+				gapSize = 0
 			}
 			if gapSize > 1000 {
 				gapSize = 1000
@@ -1299,6 +1456,8 @@ func scaffoldContigs(contigs []string, pairs []readPair, seedK int) []string {
 			merged = from + strings.Repeat("N", gapSize) + to
 		}
 		sequences[link.from] = merged
+		usedEnds[link.from][0] = true
+		usedEnds[link.from][1] = true
 		active[link.to] = false
 	}
 	result := make([]string, 0, len(contigs))
@@ -1309,6 +1468,100 @@ func scaffoldContigs(contigs []string, pairs []readPair, seedK int) []string {
 	}
 	sort.Strings(result)
 	return result
+}
+
+func scaffoldContigs(contigs []string, pairs []readPair, seedK int) []string {
+	if len(contigs) < 2 || len(pairs) == 0 {
+		return contigs
+	}
+	lengths := make([]int, 0, len(pairs))
+	for _, pair := range pairs {
+		length := len(pair.first)
+		if len(pair.second) < length {
+			length = len(pair.second)
+		}
+		if length > 0 {
+			lengths = append(lengths, length)
+		}
+	}
+	if len(lengths) == 0 {
+		return contigs
+	}
+	sort.Ints(lengths)
+	median := lengths[len(lengths)/2]
+	if seedK > median-1 {
+		seedK = median - 1
+	}
+	if seedK < 8 {
+		return contigs
+	}
+	index := buildContigIndex(contigs, seedK)
+	mapped := make([]mappedReadPair, len(pairs))
+	sameDistances := make([]int, 0)
+	oppositeCount := 0
+	sameCount := 0
+	for i, pair := range pairs {
+		first, okFirst := mapRead(pair.first, index, seedK)
+		second, okSecond := mapRead(pair.second, index, seedK)
+		if okFirst {
+			okFirst = validMapping(first, len(contigs[first.contig]), len(pair.first))
+		}
+		if okSecond {
+			okSecond = validMapping(second, len(contigs[second.contig]), len(pair.second))
+		}
+		mapped[i] = mappedReadPair{first: first, second: second, ok: okFirst && okSecond}
+		if !okFirst || !okSecond || first.contig != second.contig {
+			continue
+		}
+		distance := second.start - first.start
+		if distance < 0 {
+			distance = -distance
+		}
+		sameDistances = append(sameDistances, distance)
+		if first.strand != second.strand {
+			oppositeCount++
+		} else {
+			sameCount++
+		}
+	}
+	insert := 0
+	if len(sameDistances) > 0 {
+		sort.Ints(sameDistances)
+		insert = sameDistances[len(sameDistances)/2]
+	}
+	if insert <= 0 {
+		insert = pairs[0].distance
+	}
+	options := []bool{false, true}
+	if oppositeCount+sameCount >= 20 {
+		options = []bool{oppositeCount > sameCount}
+	}
+	bestLinks := []contigLink(nil)
+	bestScore := -1
+	bestGap := 1 << 60
+	for _, fr := range options {
+		candidateInsert := insert
+		if fr && len(sameDistances) == 0 {
+			candidateInsert += median - 1
+		}
+		links := buildScaffoldLinks(mapped, contigs, candidateInsert, fr)
+		score := 0
+		gapScore := 0
+		for _, link := range links {
+			score += link.support
+			gap := link.gapTotal / link.support
+			if gap < 0 {
+				gap = -gap
+			}
+			gapScore += gap
+		}
+		if score > bestScore || (score == bestScore && gapScore < bestGap) {
+			bestLinks = links
+			bestScore = score
+			bestGap = gapScore
+		}
+	}
+	return mergeScaffoldLinks(contigs, bestLinks, seedK)
 }
 
 func formatFASTA(contigs []string) string {
@@ -1372,10 +1625,13 @@ func main() {
 	input = nil
 	runtime.GC()
 	contigs := assembleDataset(dataset)
-	if dataset.paired {
+	if dataset.paired && !dataset.corrected {
 		contigs = scaffoldContigs(contigs, dataset.pairs, 21)
 	}
-	fmt.Println(formatFASTA(contigs))
+	output := formatFASTA(contigs)
+	if output != "" {
+		fmt.Println(output)
+	}
 }
 
 // The helpers below are inlined from dsa/course_6_genome_assembly/internal/assembly

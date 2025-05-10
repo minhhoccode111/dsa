@@ -129,6 +129,35 @@ func TestVisibleDatasetAssembly(t *testing.T) {
 	}
 }
 
+func TestScaffoldContigsFROrientation(t *testing.T) {
+	a := randomDNA(1, 300)
+	b := randomDNA(2, 300)
+	genome := a + b
+	ds := frDatasetFor(genome, len(a), len(b), 100, 100, 350)
+	scaffolds := scaffoldContigs([]string{a, b}, ds.pairs, 21)
+	if len(scaffolds) != 1 {
+		t.Fatalf("FR scaffolds = %d", len(scaffolds))
+	}
+	if !strings.Contains(scaffolds[0], a) || !strings.Contains(scaffolds[0], b) {
+		t.Fatalf("FR scaffold is not A+B: %s", scaffolds[0])
+	}
+}
+
+func TestShortMateDoesNotDisableScaffolding(t *testing.T) {
+	uniqueA := randomDNA(1, 300)
+	uniqueB := randomDNA(2, 300)
+	uniqueC := randomDNA(3, 300)
+	repeat := randomDNA(99, 220)
+	genome := uniqueA + repeat + uniqueB + repeat + uniqueC
+	ds := pairedDatasetFor(genome, 30, 100, 350, 20)
+	base := scaffoldContigs([]string{uniqueA, uniqueB, uniqueC}, ds.pairs, 21)
+	ds.pairs = append(ds.pairs, readPair{first: []byte("ACGTACGT"), second: []byte("ACGT"), distance: 350})
+	withShort := scaffoldContigs([]string{uniqueA, uniqueB, uniqueC}, ds.pairs, 21)
+	if len(withShort) != len(base) {
+		t.Fatalf("short mate changed scaffolds: %d -> %d", len(base), len(withShort))
+	}
+}
+
 func TestScaffoldContigsSpansRepeat(t *testing.T) {
 	uniqueA := randomDNA(1, 300)
 	uniqueB := randomDNA(2, 300)
@@ -182,6 +211,67 @@ func TestCanonicalContigs(t *testing.T) {
 	got := canonicalContigs([]string{"ACGT", "ACGT", "TTTT"})
 	if len(got) != 2 {
 		t.Fatalf("contigs = %v", got)
+	}
+}
+
+func TestCanonicalContigsRotationReverse(t *testing.T) {
+	a := "ACGTTGCA"
+	rotated := "CGTTGCAA"
+	b := string(reverseComplementBytes([]byte(rotated)))
+	got := canonicalContigs([]string{a, b})
+	if len(got) != 1 {
+		t.Fatalf("rotation/reverse contigs = %v", got)
+	}
+}
+
+func TestAssembleDatasetDoubleStrandedLinear(t *testing.T) {
+	genome := randomDNA(77, 1000)
+	reads := linearReadsBothStrands(genome, 30, 100, 5)
+	contigs := assembleDataset(&assemblerDataset{reads: reads})
+	if len(contigs) != 1 {
+		t.Fatalf("contigs = %d lengths = %v", len(contigs), contigLengths(contigs))
+	}
+}
+
+func contigLengths(contigs []string) []int {
+	lengths := make([]int, len(contigs))
+	for i, contig := range contigs {
+		lengths[i] = len(contig)
+	}
+	return lengths
+}
+
+func TestCorrectReadSingleError(t *testing.T) {
+	genome := randomDNA(11, 2000)
+	cleanReads := circularReads(genome, 30, 100)
+	clean := append([]byte(nil), cleanReads[0]...)
+	solid := solidKMersForCorrection(&assemblerDataset{reads: cleanReads}, 31, 3)
+	bloom := buildKmerBloom(solid.keys)
+	mutated := append([]byte(nil), clean...)
+	mutated[50] = "ACGT"[(strings.IndexByte("ACGT", mutated[50])+1)%4]
+	correctReads(&assemblerDataset{reads: [][]byte{mutated}}, 31, bloom)
+	if string(mutated) != string(clean) {
+		t.Fatalf("corrected read differs from clean read")
+	}
+}
+
+func TestDirectLargeKeepsSingletons(t *testing.T) {
+	read := []byte(randomDNA(31, 100))
+	dataset := &assemblerDataset{reads: [][]byte{read}}
+	counts := countDirectLarge(dataset, 61, false, 40, false)
+	code := mustKmer(t, string(read[:61]), 61)
+	if got := counts.count(code); got != 1 {
+		t.Fatalf("singleton count = %d, want 1", got)
+	}
+}
+
+func TestKmerTableGrowsAtCapacity(t *testing.T) {
+	table := newKmerTable(16)
+	for i := 0; i < 16; i++ {
+		table.add(kmer{lo: uint64(i)})
+	}
+	if len(table.keys) <= 16 {
+		t.Fatalf("table capacity = %d, want growth before full", len(table.keys))
 	}
 }
 
@@ -264,6 +354,26 @@ func TestAssembleAtKRemovesErrorTips(t *testing.T) {
 	if total < len(genome)*9/10 {
 		t.Fatalf("total = %d, want at least %d; contigs = %v", total, len(genome)*9/10, contigs)
 	}
+}
+
+func frDatasetFor(genome string, aLen, bLen, count, readLen, insert int) *assemblerDataset {
+	rng := rand.New(rand.NewSource(11))
+	ds := &assemblerDataset{paired: true}
+	maxFirstStart := aLen - readLen
+	maxSecondStart := len(genome) - readLen
+	for i := 0; i < count; i++ {
+		firstStart := rng.Intn(maxFirstStart + 1)
+		secondStart := firstStart + insert
+		if secondStart < aLen || secondStart > maxSecondStart {
+			i--
+			continue
+		}
+		first := []byte(genome[firstStart : firstStart+readLen])
+		second := reverseComplementBytes([]byte(genome[secondStart : secondStart+readLen]))
+		ds.pairs = append(ds.pairs, readPair{first: first, second: second, distance: insert})
+		ds.reads = append(ds.reads, first, second)
+	}
+	return ds
 }
 
 func pairedDatasetFor(genome string, coverage, readLen, insert, spread int) *assemblerDataset {
@@ -391,6 +501,19 @@ func referenceCoverage(contigs []string, reference string) float64 {
 		}
 	}
 	return float64(count) / float64(len(reference))
+}
+
+func linearReadsBothStrands(genome string, coverage, readLen int, seed int64) [][]byte {
+	rng := rand.New(rand.NewSource(seed))
+	maxStart := len(genome) - readLen
+	count := coverage * len(genome) / (2 * readLen)
+	reads := make([][]byte, 0, 2*count)
+	for i := 0; i < count; i++ {
+		start := rng.Intn(maxStart + 1)
+		first := []byte(genome[start : start+readLen])
+		reads = append(reads, first, reverseComplementBytes(append([]byte(nil), first...)))
+	}
+	return reads
 }
 
 func randomDNA(seed int64, length int) string {
