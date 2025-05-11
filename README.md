@@ -36,23 +36,26 @@ Input is either:
 Output is FASTA. Run it with:
 
 ```bash
-go run course_6_genome_assembly/week_3_faces_real_sequencing_data/6_implementing_an_assembler/implementing_an_assembler.go < dataset.txt
+go run course_6_genome_assembly/week_3_faces_real_sequencing_data/6_implementing_an_assembler/implementing_an_assembler.go \
+  < course_6_genome_assembly/week_3_faces_real_sequencing_data/6_implementing_an_assembler/test/dataset.txt
 ```
 
 The implementation uses solid k-mers, implicit de Bruijn unitigs, low-coverage
-tip removal, Bloom-based read correction for error-prone data, and end-aware
-read-pair scaffolding. Scaffolding is skipped after read correction because
-residual corrected-read ambiguities produced chimeric links on the error-prone
-pair proxy; those pairs keep their contigs instead. On local E. coli proxies it
-produced NGA50 47,576 for 1.4M error-prone single reads, 47,120 for 1.4M
-error-free single reads, 49,772 for 700,000 error-prone read-pairs, and 82,574
-for 700,000 error-free read-pairs. The read-pair proxy took 86 s and
-548 MB; the correction proxy took 119 s and 1.75 GB. Both are inside the
-grader's observed 450 s and 4 GB limits. Hidden dataset quality is still not
-guaranteed.
+tip removal, Bloom-based read correction for error-prone data, paired-read
+orientation normalization, and chain scaffolding. For paired data, the second
+mate is reverse-complemented when the library is forward-reverse so assembly
+stays on one strand; forward-forward libraries are left unchanged. Scaffolds
+are built from unique best links and chained through multiple contigs. On local
+E. coli proxies it produced NGA50 47,576 for 1.4M error-prone single reads,
+47,120 for 1.4M error-free single reads, 73,696 for 700,000 error-prone
+forward-forward read-pairs, 96,871 for 700,000 error-prone forward-reverse
+read-pairs, 132,568 for 700,000 error-free forward-forward read-pairs, and
+139,619 for 700,000 error-free forward-reverse read-pairs. The slowest
+correction proxy took 176 s and 1.8 GB, inside the grader's observed 450 s and
+4 GB limits. Hidden dataset quality is still not guaranteed.
 
-`dataset.txt` and `genome.txt` are optional local fixtures. They are not
-committed. The visible-dataset test skips when they are absent:
+`test/dataset.txt` and `test/genome.txt` are optional local fixtures. They are
+not committed. The visible-dataset test skips when they are absent:
 
 ```bash
 go test -run TestVisibleDatasetAssembly ./course_6_genome_assembly/week_3_faces_real_sequencing_data/6_implementing_an_assembler -v

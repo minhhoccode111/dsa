@@ -11,6 +11,126 @@ import (
 	"strings"
 )
 
+// tipGraph is a de Bruijn graph over (k-1)-mers with out-neighbor lists in
+// first-appearance order and live in-degree counters.
+type tipGraph struct {
+	out     [][]int
+	inDeg   []int
+	limit   int
+	removed int
+}
+
+func (g *tipGraph) removeEdge(u, v int) {
+	neighbors := g.out[u]
+	for i, target := range neighbors {
+		if target == v {
+			g.out[u] = append(neighbors[:i:i], neighbors[i+1:]...)
+			break
+		}
+	}
+	g.inDeg[v]--
+	g.removed++
+}
+
+// findRemoveOutgoing walks a tip that starts at a branching vertex: it follows
+// the chain from current while it stays non-branching and short, and removes
+// the chain only if it dead-ends within the depth limit.
+func (g *tipGraph) findRemoveOutgoing(current, depth, limit int) bool {
+	if len(g.out[current]) > 1 || g.inDeg[current] > 1 {
+		return false
+	}
+	if depth == limit {
+		return false
+	}
+	if len(g.out[current]) == 0 {
+		return true
+	}
+	next := g.out[current][0]
+	if g.findRemoveOutgoing(next, depth+1, limit) {
+		g.removeEdge(current, next)
+		return true
+	}
+	return false
+}
+
+// findRemoveIncoming walks a tip that starts at a vertex with no incoming
+// edges: it removes the chain up to the first merging or dead-end vertex.
+func (g *tipGraph) findRemoveIncoming(current, depth, limit int) bool {
+	if depth == limit {
+		return false
+	}
+	if len(g.out[current]) == 0 || g.inDeg[current] > 1 {
+		return true
+	}
+	next := g.out[current][0]
+	if g.findRemoveIncoming(next, depth+1, limit) {
+		g.removeEdge(current, next)
+		return true
+	}
+	return false
+}
+
+func (g *tipGraph) removeTips() int {
+	for u := range g.out {
+		incoming := false
+		if len(g.out[u]) == 1 && g.inDeg[u] == 0 {
+			incoming = true
+		} else if len(g.out[u]) <= 1 {
+			continue
+		}
+		for {
+			progress := false
+			for _, w := range g.out[u] {
+				var ok bool
+				if incoming {
+					ok = g.findRemoveIncoming(w, 0, g.limit)
+				} else {
+					ok = g.findRemoveOutgoing(w, 0, g.limit)
+				}
+				if ok {
+					g.removeEdge(u, w)
+					progress = true
+					break
+				}
+			}
+			if !progress {
+				break
+			}
+		}
+	}
+	return g.removed
+}
+
+type tipGraphBuilder struct {
+	index   map[string]int
+	graph   tipGraph
+	present []map[int]bool
+}
+
+func (b *tipGraphBuilder) vertex(name string) int {
+	if id, ok := b.index[name]; ok {
+		return id
+	}
+	id := len(b.index)
+	b.index[name] = id
+	b.graph.out = append(b.graph.out, nil)
+	b.graph.inDeg = append(b.graph.inDeg, 0)
+	b.present = append(b.present, nil)
+	return id
+}
+
+func (b *tipGraphBuilder) addEdge(left, right int) {
+	if b.present[left] == nil {
+		b.present[left] = make(map[int]bool, 4)
+	}
+	if b.present[left][right] {
+		return
+	}
+	b.present[left][right] = true
+	b.graph.out[left] = append(b.graph.out[left], right)
+	b.graph.inDeg[right]++
+}
+
 func removeTips(reads []string) int {
 	if len(reads) == 0 {
 		return 0
@@ -22,63 +142,20 @@ func removeTips(reads []string) int {
 	if k < 1 {
 		return 0
 	}
-	kmerSet := make(map[string]bool)
+	builder := &tipGraphBuilder{index: make(map[string]int)}
+	builder.graph.limit = k
 	for _, read := range reads {
-		for i := 0; i+k <= len(read); i++ {
-			kmerSet[read[i:i+k]] = true
-		}
-	}
-	kmers := make([]string, 0, len(kmerSet))
-	for kmer := range kmerSet {
-		kmers = append(kmers, kmer)
-	}
-	vertexSet := make(map[string]bool)
-	for _, kmer := range kmers {
-		vertexSet[kmer[:k-1]] = true
-		vertexSet[kmer[1:]] = true
-	}
-	vertices := make([]string, 0, len(vertexSet))
-	for vertex := range vertexSet {
-		vertices = append(vertices, vertex)
-	}
-	index := make(map[string]int, len(vertices))
-	for i, vertex := range vertices {
-		index[vertex] = i
-	}
-	edges := make([][2]int, 0, len(kmers))
-	for _, kmer := range kmers {
-		edges = append(edges, [2]int{index[kmer[:k-1]], index[kmer[1:]]})
-	}
-
-	tipCount := 0
-	for {
-		forward := make([][]int, len(vertices))
-		reverse := make([][]int, len(vertices))
-		for _, edge := range edges {
-			forward[edge[0]] = append(forward[edge[0]], edge[1])
-			reverse[edge[1]] = append(reverse[edge[1]], edge[0])
-		}
-		remove := make([]bool, len(edges))
-		removed := 0
-		for i, edge := range edges {
-			if len(forward[edge[1]]) == 0 || len(reverse[edge[0]]) == 0 {
-				remove[i] = true
-				removed++
+		for start := 0; start+k <= len(read); start++ {
+			kmer := read[start : start+k]
+			left := kmer[:k-1]
+			right := kmer[1:]
+			if left == right {
+				continue
 			}
+			builder.addEdge(builder.vertex(left), builder.vertex(right))
 		}
-		if removed == 0 {
-			break
-		}
-		tipCount += removed
-		remaining := make([][2]int, 0, len(edges)-removed)
-		for i, edge := range edges {
-			if !remove[i] {
-				remaining = append(remaining, edge)
-			}
-		}
-		edges = remaining
 	}
-	return tipCount
+	return builder.graph.removeTips()
 }
 
 func parseTipReads(input string) []string {
@@ -96,6 +173,7 @@ func parseTipReads(input string) []string {
 func main() {
 	reads := make([]string, 0)
 	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line != "" {
