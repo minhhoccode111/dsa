@@ -368,6 +368,43 @@ func hashKmer(key kmer) uint64 {
 	return h
 }
 
+func kmerBloomHashes(code kmer) (uint64, uint64) {
+	first := hashKmer(code)
+	second := hashKmer(kmer{lo: code.hi + 0x9e3779b97f4a7c15, hi: code.lo})
+	return first, second
+}
+
+type kmerBloom struct {
+	bits []uint64
+	mask uint64
+}
+
+func newKmerBloom(pow2Bits uint) *kmerBloom {
+	bloomBits := uint64(1) << pow2Bits
+	return &kmerBloom{
+		bits: make([]uint64, bloomBits/64),
+		mask: bloomBits - 1,
+	}
+}
+
+func (b *kmerBloom) add(code kmer) {
+	first, second := kmerBloomHashes(code)
+	i1 := first & b.mask
+	b.bits[i1>>6] |= uint64(1) << uint(i1&63)
+	i2 := second & b.mask
+	b.bits[i2>>6] |= uint64(1) << uint(i2&63)
+}
+
+func (b *kmerBloom) contains(code kmer) bool {
+	first, second := kmerBloomHashes(code)
+	i1 := first & b.mask
+	if b.bits[i1>>6]&(uint64(1)<<uint(i1&63)) == 0 {
+		return false
+	}
+	i2 := second & b.mask
+	return b.bits[i2>>6]&(uint64(1)<<uint(i2&63)) != 0
+}
+
 func (t *kmerTable) find(key kmer) (int, bool) {
 	index, found := t.slot(key)
 	if !found {
@@ -380,10 +417,6 @@ func countSolidKMers(dataset *assemblerDataset, k int, canonical bool) *countedK
 	return countKMers(dataset, k, canonical, false, false)
 }
 
-func countSolidKMersRelease(dataset *assemblerDataset, k int, canonical bool) *countedKMers {
-	return countKMers(dataset, k, canonical, false, true)
-}
-
 func countKMers(dataset *assemblerDataset, k int, canonical, bothStrands, releaseReads bool) *countedKMers {
 	instances := kmerInstances(dataset, k)
 	if bothStrands {
@@ -393,10 +426,6 @@ func countKMers(dataset *assemblerDataset, k int, canonical, bothStrands, releas
 		return countDirectMode(dataset, k, canonical, bothStrands)
 	}
 	return countBloomMode(dataset, k, canonical, bothStrands, instances, releaseReads)
-}
-
-func countDirect(dataset *assemblerDataset, k int, canonical bool) *countedKMers {
-	return countDirectMode(dataset, k, canonical, false)
 }
 
 func countDirectMode(dataset *assemblerDataset, k int, canonical, bothStrands bool) *countedKMers {
@@ -447,13 +476,8 @@ func kmerInstances(dataset *assemblerDataset, k int) uint64 {
 	return total
 }
 
-func countBloom(dataset *assemblerDataset, k int, canonical bool, total uint64, releaseReads bool) *countedKMers {
-	return countBloomMode(dataset, k, canonical, false, total, releaseReads)
-}
-
 func countBloomMode(dataset *assemblerDataset, k int, canonical, bothStrands bool, total uint64, releaseReads bool) *countedKMers {
-	const bloomBits = uint64(1) << 29
-	bloom := make([]uint64, bloomBits/64)
+	bloom := newKmerBloom(29)
 	initial := 1 << 20
 	if total > 20_000_000 {
 		initial = 1 << 23
@@ -461,22 +485,11 @@ func countBloomMode(dataset *assemblerDataset, k int, canonical, bothStrands boo
 		initial = 1 << 22
 	}
 	candidate := newKmerTable(initial)
-	test := func(hash uint64) bool {
-		index := hash & (bloomBits - 1)
-		return bloom[index>>6]&(uint64(1)<<uint(index&63)) != 0
-	}
-	set := func(hash uint64) {
-		index := hash & (bloomBits - 1)
-		bloom[index>>6] |= uint64(1) << uint(index&63)
-	}
 	eachKmerMode(dataset, k, canonical, bothStrands, func(code kmer) {
-		first := hashKmer(code)
-		second := hashKmer(kmer{lo: code.hi + 0x9e3779b97f4a7c15, hi: code.lo})
-		if test(first) && test(second) {
+		if bloom.contains(code) {
 			candidate.add(code)
 		}
-		set(first)
-		set(second)
+		bloom.add(code)
 	})
 	eachKmerMode(dataset, k, canonical, bothStrands, func(code kmer) {
 		if index, ok := candidate.find(code); ok {
@@ -492,6 +505,45 @@ func countBloomMode(dataset *assemblerDataset, k int, canonical, bothStrands boo
 	return extractCounts(candidate, 2, total, k)
 }
 
+func canonPair(fwd, rc kmer) kmer {
+	if kmerLess(rc, fwd) {
+		return rc
+	}
+	return fwd
+}
+
+// scanReadKMers walks read in a rolling 2-bit pass, invoking visit with each
+// valid k-mer and its reverse complement; returns false if stopped on invalid bases.
+func scanReadKMers(read []byte, k int, resetOnInvalid bool, visit func(fwd, rc kmer) bool) bool {
+	if k <= 0 || len(read) < k {
+		return true
+	}
+	var code, rc kmer
+	run := 0
+	for i := 0; i < len(read); i++ {
+		v, ok := baseValue(read[i])
+		if !ok {
+			if !resetOnInvalid {
+				return false
+			}
+			run = 0
+			code = kmer{}
+			rc = kmer{}
+			continue
+		}
+		code = code.appendCode(v, k)
+		rc = prependCode(rc.prefix(), 3-v, k)
+		run++
+		if run < k {
+			continue
+		}
+		if !visit(code, rc) {
+			return true
+		}
+	}
+	return true
+}
+
 func eachKmer(dataset *assemblerDataset, k int, canonical bool, visit func(kmer)) {
 	eachKmerMode(dataset, k, canonical, false, visit)
 }
@@ -501,38 +553,17 @@ func eachKmerMode(dataset *assemblerDataset, k int, canonical, bothStrands bool,
 		return
 	}
 	for _, read := range dataset.reads {
-		if len(read) < k {
-			continue
-		}
-		var code, rc kmer
-		run := 0
-		for i := 0; i < len(read); i++ {
-			v, ok := baseValue(read[i])
-			if !ok {
-				run = 0
-				code = kmer{}
-				rc = kmer{}
-				continue
-			}
-			code = code.appendCode(v, k)
-			rc = prependCode(rc.prefix(), 3-v, k)
-			run++
-			if run < k {
-				continue
-			}
+		scanReadKMers(read, k, true, func(code, rc kmer) bool {
 			if canonical {
-				if kmerLess(rc, code) {
-					visit(rc)
-				} else {
-					visit(code)
-				}
-				continue
+				visit(canonPair(code, rc))
+				return true
 			}
 			visit(code)
 			if bothStrands && rc != code {
 				visit(rc)
 			}
-		}
+			return true
+		})
 	}
 }
 
@@ -709,47 +740,11 @@ func prependCode(vertex kmer, value byte, k int) kmer {
 	return kmer{lo: vertex.lo, hi: vertex.hi | (uint64(value&3) << uint(bits-64))}
 }
 
-func (c *countedKMers) vertexIn(vertex kmer, k int) int {
-	degree := 0
-	for base := byte(0); base < 4; base++ {
-		if c.index(prependCode(vertex, base, k)) >= 0 {
-			degree++
-		}
-	}
-	return degree
-}
-
-func (c *countedKMers) vertexOut(vertex kmer, k int) int {
-	degree := 0
-	for base := byte(0); base < 4; base++ {
-		if c.index(vertex.appendCode(base, k)) >= 0 {
-			degree++
-		}
-	}
-	return degree
-}
-
-func (c *countedKMers) uniqueOut(vertex kmer, k int) (kmer, bool) {
-	var next kmer
-	found := false
-	for base := byte(0); base < 4; base++ {
-		candidate := vertex.appendCode(base, k)
-		if c.index(candidate) >= 0 {
-			if found {
-				return kmer{}, false
-			}
-			next = candidate
-			found = true
-		}
-	}
-	return next, found
-}
-
 func (c *countedKMers) vertexInLive(vertex kmer, k int, removed []bool) int {
 	degree := 0
 	for base := byte(0); base < 4; base++ {
 		index := c.index(prependCode(vertex, base, k))
-		if index >= 0 && !removed[index] {
+		if index >= 0 && (removed == nil || !removed[index]) {
 			degree++
 		}
 	}
@@ -760,7 +755,7 @@ func (c *countedKMers) vertexOutLive(vertex kmer, k int, removed []bool) int {
 	degree := 0
 	for base := byte(0); base < 4; base++ {
 		index := c.index(vertex.appendCode(base, k))
-		if index >= 0 && !removed[index] {
+		if index >= 0 && (removed == nil || !removed[index]) {
 			degree++
 		}
 	}
@@ -773,7 +768,7 @@ func (c *countedKMers) uniqueOutLive(vertex kmer, k int, removed []bool) (kmer, 
 	for base := byte(0); base < 4; base++ {
 		candidate := vertex.appendCode(base, k)
 		index := c.index(candidate)
-		if index >= 0 && !removed[index] {
+		if index >= 0 && (removed == nil || !removed[index]) {
 			if found {
 				return kmer{}, false
 			}
@@ -1280,57 +1275,34 @@ func orientPairedReads(dataset *assemblerDataset) {
 	if !dataset.paired || len(dataset.pairs) == 0 {
 		return
 	}
-	k := 31
+	const k = 31
 	limit := len(dataset.pairs)
 	if limit > 30000 {
 		limit = 30000
 	}
-	const bloomBits = uint64(1) << 25
-	seen := make([]uint64, bloomBits/64)
-	test := func(hash uint64) bool {
-		index := hash & (bloomBits - 1)
-		return seen[index>>6]&(uint64(1)<<uint(index&63)) != 0
-	}
-	set := func(hash uint64) {
-		index := hash & (bloomBits - 1)
-		seen[index>>6] |= uint64(1) << uint(index&63)
-	}
+	seen := newKmerBloom(25)
 	for _, pair := range dataset.pairs[:limit] {
-		for start := 0; start+k <= len(pair.first); start++ {
-			code, ok := encodeKmer(pair.first[start:start+k], k)
-			if !ok {
-				continue
-			}
-			set(hashKmer(code))
-			set(hashKmer(kmer{lo: code.hi + 0x9e3779b97f4a7c15, hi: code.lo}))
-		}
+		scanReadKMers(pair.first, k, true, func(code, _ kmer) bool {
+			seen.add(code)
+			return true
+		})
 	}
 	forward, reverse, total := 0, 0, 0
 	for _, pair := range dataset.pairs[:limit] {
-		for start := 0; start+k <= len(pair.second); start++ {
-			code, ok := encodeKmer(pair.second[start:start+k], k)
-			if !ok {
-				continue
-			}
+		scanReadKMers(pair.second, k, true, func(code, _ kmer) bool {
 			total++
-			first := hashKmer(code)
-			second := hashKmer(kmer{lo: code.hi + 0x9e3779b97f4a7c15, hi: code.lo})
-			if test(first) && test(second) {
+			if seen.contains(code) {
 				forward++
 			}
-		}
+			return true
+		})
 		rc := reverseComplementSequence(pair.second)
-		for start := 0; start+k <= len(rc); start++ {
-			code, ok := encodeKmer(rc[start:start+k], k)
-			if !ok {
-				continue
-			}
-			first := hashKmer(code)
-			second := hashKmer(kmer{lo: code.hi + 0x9e3779b97f4a7c15, hi: code.lo})
-			if test(first) && test(second) {
+		scanReadKMers(rc, k, true, func(code, _ kmer) bool {
+			if seen.contains(code) {
 				reverse++
 			}
-		}
+			return true
+		})
 	}
 	if total == 0 || reverse <= 3*forward || reverse < 1000 {
 		return
@@ -1346,48 +1318,21 @@ func detectDoubleStranded(dataset *assemblerDataset, k int) bool {
 		return false
 	}
 	indexDS := sampleDataset(dataset, 200000)
-	const bloomBits = uint64(1) << 26
-	seen := make([]uint64, bloomBits/64)
-	test := func(hash uint64) bool {
-		index := hash & (bloomBits - 1)
-		return seen[index>>6]&(uint64(1)<<uint(index&63)) != 0
-	}
-	set := func(hash uint64) {
-		index := hash & (bloomBits - 1)
-		seen[index>>6] |= uint64(1) << uint(index&63)
-	}
+	seen := newKmerBloom(26)
 	eachKmerMode(indexDS, k, false, false, func(code kmer) {
-		set(hashKmer(code))
-		set(hashKmer(kmer{lo: code.hi + 0x9e3779b97f4a7c15, hi: code.lo}))
+		seen.add(code)
 	})
 	queryDS := sampleDataset(dataset, 2000)
 	total := 0
 	present := 0
 	for _, read := range queryDS.reads {
-		if len(read) < k {
-			continue
-		}
-		var rc kmer
-		run := 0
-		for i := 0; i < len(read); i++ {
-			v, ok := baseValue(read[i])
-			if !ok {
-				run = 0
-				rc = kmer{}
-				continue
-			}
-			rc = prependCode(rc.prefix(), 3-v, k)
-			run++
-			if run < k {
-				continue
-			}
-			first := hashKmer(rc)
-			second := hashKmer(kmer{lo: rc.hi + 0x9e3779b97f4a7c15, hi: rc.lo})
+		scanReadKMers(read, k, true, func(_, rc kmer) bool {
 			total++
-			if test(first) && test(second) {
+			if seen.contains(rc) {
 				present++
 			}
-		}
+			return true
+		})
 	}
 	if total == 0 {
 		return false
@@ -1395,15 +1340,7 @@ func detectDoubleStranded(dataset *assemblerDataset, k int) bool {
 	return float64(present)/float64(total) > 0.20
 }
 
-func assembleDataset(dataset *assemblerDataset) ([]string, *countedKMers, int) {
-	if len(dataset.reads) == 0 {
-		return nil, nil, 0
-	}
-	orientPairedReads(dataset)
-	median := medianReadLength(dataset)
-	if median < 2 {
-		return nil, nil, 0
-	}
+func computeKBounds(median, cap int) (int, int) {
 	kMax := median - 1
 	if kMax > 61 {
 		kMax = 61
@@ -1414,18 +1351,8 @@ func assembleDataset(dataset *assemblerDataset) ([]string, *countedKMers, int) {
 	if kMax > median {
 		kMax = median
 	}
-	if dataset.kMaxCap > 0 && kMax > dataset.kMaxCap {
-		kMax = dataset.kMaxCap
-	}
-	if kMax < 2 {
-		return nil, nil, 0
-	}
-	if len(dataset.reads) < 100 {
-		reads := make([]string, len(dataset.reads))
-		for i, read := range dataset.reads {
-			reads[i] = string(read)
-		}
-		return UnitigContigs(collectKMers(reads, kMax, true)), nil, kMax
+	if cap > 0 && kMax > cap {
+		kMax = cap
 	}
 	detectionK := 31
 	if detectionK > kMax {
@@ -1437,41 +1364,37 @@ func assembleDataset(dataset *assemblerDataset) ([]string, *countedKMers, int) {
 	if median < 95 && detectionK > 23 {
 		detectionK = 23
 	}
-	bothStrands := false
-	if detectionK >= 2 {
-		bothStrands = detectDoubleStranded(dataset, detectionK)
+	return kMax, detectionK
+}
+
+func maybeCorrectDataset(dataset *assemblerDataset, median, kMax, detectionK int, errorFraction float64) (float64, bool) {
+	if errorFraction <= 0.10 || len(dataset.reads) < 500 {
+		return errorFraction, false
 	}
-	errorFraction := 0.0
-	correctionRan := false
-	if detectionK >= 2 {
-		errorFraction = detectErrorFraction(dataset, detectionK)
+	correctionK := 29
+	if median < 95 {
+		correctionK = 23
 	}
-	if errorFraction > 0.10 && len(dataset.reads) >= 500 {
-		correctionRan = true
-		correctionK := 29
-		if median < 95 {
-			correctionK = 23
-		}
-		if correctionK > kMax {
-			correctionK = kMax
-		}
-		if correctionK > median {
-			correctionK = median
-		}
-		if correctionK >= 2 {
-			solid := solidKMersForCorrection(dataset, correctionK, 3)
-			bloom := buildKmerBloom(solid.keys)
-			correctReads(dataset, correctionK, bloom)
-			solid = nil
-			bloom = nil
-			runtime.GC()
-			debug.FreeOSMemory()
-			errorFraction = detectErrorFraction(dataset, detectionK)
-		}
+	if correctionK > kMax {
+		correctionK = kMax
 	}
+	if correctionK > median {
+		correctionK = median
+	}
+	if correctionK < 2 {
+		return errorFraction, true
+	}
+	solid := solidKMersForCorrection(dataset, correctionK, 3)
+	bloom := buildKmerBloom(solid.keys)
+	correctReads(dataset, correctionK, bloom)
+	solid = nil
+	bloom = nil
 	runtime.GC()
 	debug.FreeOSMemory()
-	sample := sampleDataset(dataset, 1000)
+	return detectErrorFraction(dataset, detectionK), true
+}
+
+func chooseAssemblyK(readsCount, median, kMax, detectionK int, errorFraction float64, correctionRan bool) int {
 	chosenK := kMax
 	if errorFraction > 0.10 {
 		chosenK = 31
@@ -1497,15 +1420,13 @@ func assembleDataset(dataset *assemblerDataset) ([]string, *countedKMers, int) {
 		}
 	} else if correctionRan {
 		if errorFraction <= 0.02 {
-			if len(dataset.reads) < 50000 && chosenK > 51 {
+			if readsCount < 50000 && chosenK > 51 {
 				chosenK = 51
 			}
-		} else {
-			if median < 80 && chosenK > 27 {
-				chosenK = 27
-			} else if chosenK > 35 {
-				chosenK = 35
-			}
+		} else if median < 80 && chosenK > 27 {
+			chosenK = 27
+		} else if chosenK > 35 {
+			chosenK = 35
 		}
 	}
 	if median < 95 && chosenK > median*2/3 && median*2/3 >= 21 {
@@ -1523,21 +1444,80 @@ func assembleDataset(dataset *assemblerDataset) ([]string, *countedKMers, int) {
 	if chosenK < 3 {
 		chosenK = kMax
 	}
+	return chosenK
+}
+
+func assembleMultiKErrorHeavy(dataset *assemblerDataset, kMax, fallbackK int, bothStrands bool) ([]string, *countedKMers, int) {
+	bestN50, bestBig := -1, -1
+	chosenK := fallbackK
+	var counts *countedKMers
+	var contigs []string
+	for cand := 21; cand <= 37 && cand <= kMax; cand += 6 {
+		candidate := countKMers(dataset, cand, false, bothStrands, false)
+		candidate.fillMinSolid = 2
+		fRatio := 0.35
+		if candidate.estimatedCoverage >= 18 {
+			fRatio = 0.40
+		}
+		assembly := assembleAtK(candidate, assemblyConfig{
+			k: cand, minCount: 2, filter: true, filterRatio: fRatio, resolveForks: true, bothStrands: bothStrands,
+		})
+		n50 := bigN50(assembly)
+		big := bigBases(assembly)
+		if n50 > bestN50 || (n50 == bestN50 && big > bestBig) {
+			bestN50, bestBig = n50, big
+			counts, contigs, chosenK = candidate, assembly, cand
+		}
+	}
+	dataset.reads = nil
+	runtime.GC()
+	debug.FreeOSMemory()
+	if len(contigs) == 0 {
+		contigs = assembleAtK(counts, assemblyConfig{k: chosenK, minCount: 1, bothStrands: bothStrands})
+	}
+	return contigs, counts, chosenK
+}
+
+func assembleDataset(dataset *assemblerDataset) ([]string, *countedKMers, int) {
+	if len(dataset.reads) == 0 {
+		return nil, nil, 0
+	}
+	orientPairedReads(dataset)
+	median := medianReadLength(dataset)
+	if median < 2 {
+		return nil, nil, 0
+	}
+	kMax, detectionK := computeKBounds(median, dataset.kMaxCap)
+	if kMax < 2 {
+		return nil, nil, 0
+	}
+	if len(dataset.reads) < 100 {
+		reads := make([]string, len(dataset.reads))
+		for i, read := range dataset.reads {
+			reads[i] = string(read)
+		}
+		return UnitigContigs(collectKMers(reads, kMax, true)), nil, kMax
+	}
+	bothStrands := detectionK >= 2 && detectDoubleStranded(dataset, detectionK)
+	errorFraction := 0.0
+	if detectionK >= 2 {
+		errorFraction = detectErrorFraction(dataset, detectionK)
+	}
+	errorFraction, correctionRan := maybeCorrectDataset(dataset, median, kMax, detectionK, errorFraction)
+	runtime.GC()
+	debug.FreeOSMemory()
+	sample := sampleDataset(dataset, 1000)
+	chosenK := chooseAssemblyK(len(dataset.reads), median, kMax, detectionK, errorFraction, correctionRan)
 	if chosenK < 2 {
 		return nil, nil, 0
 	}
-	readLimit := 1000000
-	if errorFraction > 0.10 && !dataset.paired && len(dataset.reads) > readLimit {
-		dataset.reads = dataset.reads[:readLimit]
+	if errorFraction > 0.10 && !dataset.paired && len(dataset.reads) > 1000000 {
+		dataset.reads = dataset.reads[:1000000]
 	}
 	var counts *countedKMers
 	var contigs []string
 	if errorFraction <= 0.03 || (!correctionRan && errorFraction <= 0.10) {
 		counts = countDirectLargeMode(dataset, chosenK, false, bothStrands, kmerInstances(dataset, chosenK), true)
-		// Direct tables keep single-occurrence k-mers, so gap-fill walks need a
-		// higher threshold to avoid stepping on residual error k-mers. After
-		// read correction, true junction k-mers can also be starved to low
-		// counts, so walk at the lowest useful threshold.
 		if correctionRan {
 			counts.fillMinSolid = 2
 		} else {
@@ -1546,54 +1526,16 @@ func assembleDataset(dataset *assemblerDataset) ([]string, *countedKMers, int) {
 	} else if errorFraction <= 0.10 {
 		counts = countKMers(dataset, chosenK, false, bothStrands, true)
 		counts.fillMinSolid = 2
-	} else if errorFraction > 0.10 && kMax >= 25 && len(dataset.reads) <= 400000 {
-		// Error-heavy data: systematic indel classes fragment the graph
-		// unpredictably, so try several k values and keep the assembly
-		// with the most contiguous sequence.
-		bestN50 := -1
-		bestBig := -1
-		for cand := 21; cand <= 37 && cand <= kMax; cand += 6 {
-			candidate := countKMers(dataset, cand, false, bothStrands, false)
-			candidate.fillMinSolid = 2
-			fRatio := 0.35
-			if candidate.estimatedCoverage >= 18 {
-				fRatio = 0.40
-			}
-			assembly := assembleAtK(candidate, assemblyConfig{
-				k: cand, minCount: 2, filter: true, filterRatio: fRatio, resolveForks: true, bothStrands: bothStrands,
-			})
-			n50 := bigN50(assembly)
-			big := bigBases(assembly)
-			if n50 > bestN50 || (n50 == bestN50 && big > bestBig) {
-				bestN50 = n50
-				bestBig = big
-				counts = candidate
-				contigs = assembly
-				chosenK = cand
-			} else {
-				candidate = nil
-				assembly = nil
-			}
-		}
-		dataset.reads = nil
-		runtime.GC()
-		debug.FreeOSMemory()
-		if len(contigs) == 0 {
-			contigs = assembleAtK(counts, assemblyConfig{k: chosenK, minCount: 1, bothStrands: bothStrands})
-		}
+	} else if kMax >= 25 && len(dataset.reads) <= 400000 {
+		contigs, counts, chosenK = assembleMultiKErrorHeavy(dataset, kMax, chosenK, bothStrands)
 	} else {
 		counts = countKMers(dataset, chosenK, false, bothStrands, true)
-		// Solid tables are already filtered to count >= 2; count-2 entries are
-		// true k-mers from low-coverage junctions, so walk at the table floor.
 		counts.fillMinSolid = 2
 	}
 	canonical := bothStrands || isDoubleStranded(sample, counts, chosenK)
 	if contigs == nil {
 		filterRatio := 0.30
 		if errorFraction > 0.50 {
-			// Uncorrected, error-heavy data (real WGS-style) carries count-2..3
-			// systematic error k-mers; require a firmer share of the estimated
-			// true coverage.
 			filterRatio = 0.40
 		}
 		contigs = assembleAtK(counts, assemblyConfig{
@@ -1611,59 +1553,25 @@ func assembleDataset(dataset *assemblerDataset) ([]string, *countedKMers, int) {
 }
 
 func detectErrorFraction(dataset *assemblerDataset, k int) float64 {
-	const bloomBits = uint64(1) << 28
-	seen := make([]uint64, bloomBits/64)
-	twice := make([]uint64, bloomBits/64)
-	thrice := make([]uint64, bloomBits/64)
-	test := func(bits []uint64, hash uint64) bool {
-		index := hash & (bloomBits - 1)
-		return bits[index>>6]&(uint64(1)<<uint(index&63)) != 0
-	}
-	set := func(bits []uint64, hash uint64) {
-		index := hash & (bloomBits - 1)
-		bits[index>>6] |= uint64(1) << uint(index&63)
-	}
+	seen := newKmerBloom(28)
+	twice := newKmerBloom(28)
+	thrice := newKmerBloom(28)
 	limit := len(dataset.reads)
 	if limit > 600000 {
 		limit = 600000
 	}
 	for _, read := range dataset.reads[:limit] {
-		if len(read) < k {
-			continue
-		}
-		var code, rc kmer
-		run := 0
-		for i := 0; i < len(read); i++ {
-			v, ok := baseValue(read[i])
-			if !ok {
-				run = 0
-				code = kmer{}
-				rc = kmer{}
-				continue
+		scanReadKMers(read, k, true, func(code, rc kmer) bool {
+			canon := canonPair(code, rc)
+			if twice.contains(canon) {
+				thrice.add(canon)
 			}
-			code = code.appendCode(v, k)
-			rc = prependCode(rc.prefix(), 3-v, k)
-			run++
-			if run < k {
-				continue
+			if seen.contains(canon) {
+				twice.add(canon)
 			}
-			canon := code
-			if kmerLess(rc, code) {
-				canon = rc
-			}
-			first := hashKmer(canon)
-			second := hashKmer(kmer{lo: canon.hi + 0x9e3779b97f4a7c15, hi: canon.lo})
-			if test(twice, first) && test(twice, second) {
-				set(thrice, first)
-				set(thrice, second)
-			}
-			if test(seen, first) && test(seen, second) {
-				set(twice, first)
-				set(twice, second)
-			}
-			set(seen, first)
-			set(seen, second)
-		}
+			seen.add(canon)
+			return true
+		})
 	}
 	step := limit / 1000
 	if step < 1 {
@@ -1672,37 +1580,13 @@ func detectErrorFraction(dataset *assemblerDataset, k int) float64 {
 	absent := 0
 	total := 0
 	for index := 0; index < limit; index += step {
-		read := dataset.reads[index]
-		if len(read) < k {
-			continue
-		}
-		var code, rc kmer
-		run := 0
-		for i := 0; i < len(read); i++ {
-			v, ok := baseValue(read[i])
-			if !ok {
-				run = 0
-				code = kmer{}
-				rc = kmer{}
-				continue
-			}
-			code = code.appendCode(v, k)
-			rc = prependCode(rc.prefix(), 3-v, k)
-			run++
-			if run < k {
-				continue
-			}
-			canon := code
-			if kmerLess(rc, code) {
-				canon = rc
-			}
-			first := hashKmer(canon)
-			second := hashKmer(kmer{lo: canon.hi + 0x9e3779b97f4a7c15, hi: canon.lo})
+		scanReadKMers(dataset.reads[index], k, true, func(code, rc kmer) bool {
 			total++
-			if !test(thrice, first) || !test(thrice, second) {
+			if !thrice.contains(canonPair(code, rc)) {
 				absent++
 			}
-		}
+			return true
+		})
 	}
 	if total == 0 {
 		return 0
@@ -1737,34 +1621,12 @@ func solidKMersForCorrection(dataset *assemblerDataset, k int, minCount uint32) 
 	return counts
 }
 
-type kmerBloom struct {
-	bits []uint64
-}
-
 func buildKmerBloom(keys []kmer) *kmerBloom {
-	const bloomBits = uint64(1) << 30
-	bloom := &kmerBloom{bits: make([]uint64, bloomBits/64)}
+	bloom := newKmerBloom(30)
 	for _, code := range keys {
-		first := hashKmer(code)
-		second := hashKmer(kmer{lo: code.hi + 0x9e3779b97f4a7c15, hi: code.lo})
-		index := first & (bloomBits - 1)
-		bloom.bits[index>>6] |= uint64(1) << uint(index&63)
-		index = second & (bloomBits - 1)
-		bloom.bits[index>>6] |= uint64(1) << uint(index&63)
+		bloom.add(code)
 	}
 	return bloom
-}
-
-func (b *kmerBloom) contains(code kmer) bool {
-	const bloomBits = uint64(1) << 30
-	first := hashKmer(code)
-	second := hashKmer(kmer{lo: code.hi + 0x9e3779b97f4a7c15, hi: code.lo})
-	index := first & (bloomBits - 1)
-	if b.bits[index>>6]&(uint64(1)<<uint(index&63)) == 0 {
-		return false
-	}
-	index = second & (bloomBits - 1)
-	return b.bits[index>>6]&(uint64(1)<<uint(index&63)) != 0
 }
 
 func correctReads(dataset *assemblerDataset, k int, bloom *kmerBloom) (int, int) {
@@ -1867,28 +1729,18 @@ func localKmersSolid(read []byte, position, k int, bloom *kmerBloom) bool {
 	if high >= len(read) {
 		high = len(read) - 1
 	}
-	var code, rc kmer
-	run := 0
-	for i := low; i <= high; i++ {
-		v, ok := baseValue(read[i])
-		if !ok {
-			return false
-		}
-		code = code.appendCode(v, k)
-		rc = prependCode(rc.prefix(), 3-v, k)
-		run++
-		if run < k {
-			continue
-		}
-		canon := code
-		if kmerLess(rc, code) {
-			canon = rc
-		}
-		if !bloom.contains(canon) {
-			return false
-		}
+	if high-low+1 < k {
+		return false
 	}
-	return run >= k
+	solid := true
+	ok := scanReadKMers(read[low:high+1], k, false, func(code, rc kmer) bool {
+		if !bloom.contains(canonPair(code, rc)) {
+			solid = false
+			return false
+		}
+		return true
+	})
+	return ok && solid
 }
 
 func sampleDataset(dataset *assemblerDataset, limit int) *assemblerDataset {
@@ -2035,14 +1887,25 @@ type linkKey struct {
 	toRev   bool
 }
 
-func buildScaffoldLinks(mapped []mappedReadPair, contigs []string, insert int, fr bool) []contigLink {
+func validScaffoldLink(link *contigLink) (int, bool) {
+	if link.support < 3 {
+		return 0, false
+	}
+	sort.Ints(link.gaps)
+	medGap := link.gaps[len(link.gaps)/2]
+	if medGap < -250 || medGap > 2500 {
+		return 0, false
+	}
+	return medGap, true
+}
+
+func collectScaffoldLinks(mapped []mappedReadPair, contigs []string, insert int, fr bool) map[linkKey]*contigLink {
 	links := make(map[linkKey]*contigLink)
 	for _, item := range mapped {
 		if !item.ok || item.first.contig == item.second.contig {
 			continue
 		}
-		from := item.first
-		to := item.second
+		from, to := item.first, item.second
 		fromRev := from.strand < 0
 		toRev := to.strand < 0
 		if fr {
@@ -2082,18 +1945,10 @@ func buildScaffoldLinks(mapped []mappedReadPair, contigs []string, insert int, f
 		addLink(from.contig, fromRev, fromEnd, to.contig, toRev, toEnd)
 		addLink(to.contig, !toRev, toEnd, from.contig, !fromRev, fromEnd)
 	}
+	return links
+}
 
-	validLink := func(link *contigLink) (int, bool) {
-		if link.support < 3 {
-			return 0, false
-		}
-		sort.Ints(link.gaps)
-		medGap := link.gaps[len(link.gaps)/2]
-		if medGap < -250 || medGap > 2500 {
-			return 0, false
-		}
-		return medGap, true
-	}
+func tallyLinkSupport(links map[linkKey]*contigLink, contigs []string, repeatContig []bool, minLen int, normalizeGap bool) (map[linkEnd]int, map[linkEnd]int, map[linkEnd]int, map[linkEnd]int) {
 	update := func(best, second map[linkEnd]int, key linkEnd, support int) {
 		if support > best[key] {
 			second[key] = best[key]
@@ -2102,24 +1957,32 @@ func buildScaffoldLinks(mapped []mappedReadPair, contigs []string, insert int, f
 			second[key] = support
 		}
 	}
-	outBest := make(map[linkEnd]int)
-	outSecond := make(map[linkEnd]int)
-	inBest := make(map[linkEnd]int)
-	inSecond := make(map[linkEnd]int)
+	outBest, outSecond := make(map[linkEnd]int), make(map[linkEnd]int)
+	inBest, inSecond := make(map[linkEnd]int), make(map[linkEnd]int)
 	for _, link := range links {
-		if medGap, ok := validLink(link); ok {
-			link.gapTotal = medGap * link.support
-			if len(contigs[link.from]) < 250 || len(contigs[link.to]) < 250 {
-				continue
-			}
-			update(outBest, outSecond, linkEnd{link.from, link.fromEnd, link.fromRev}, link.support)
-			update(inBest, inSecond, linkEnd{link.to, link.toEnd, link.toRev}, link.support)
+		if repeatContig != nil && (repeatContig[link.from] || repeatContig[link.to]) {
+			continue
 		}
+		medGap, ok := validScaffoldLink(link)
+		if !ok {
+			continue
+		}
+		if normalizeGap {
+			link.gapTotal = medGap * link.support
+		}
+		if len(contigs[link.from]) < minLen || len(contigs[link.to]) < minLen {
+			continue
+		}
+		update(outBest, outSecond, linkEnd{link.from, link.fromEnd, link.fromRev}, link.support)
+		update(inBest, inSecond, linkEnd{link.to, link.toEnd, link.toRev}, link.support)
 	}
-	repeatContig := make([]bool, len(contigs))
-	for c := range contigs {
-		ambIn := false
-		ambOut := false
+	return outBest, outSecond, inBest, inSecond
+}
+
+func findRepeatContigs(contigCount int, outBest, outSecond, inBest, inSecond map[linkEnd]int) []bool {
+	repeatContig := make([]bool, contigCount)
+	for c := 0; c < contigCount; c++ {
+		ambIn, ambOut := false, false
 		for _, rev := range []bool{false, true} {
 			for _, end := range []int8{0, 1} {
 				k := linkEnd{c, end, rev}
@@ -2135,30 +1998,25 @@ func buildScaffoldLinks(mapped []mappedReadPair, contigs []string, insert int, f
 			repeatContig[c] = true
 		}
 	}
-	outBest = make(map[linkEnd]int)
-	outSecond = make(map[linkEnd]int)
-	inBest = make(map[linkEnd]int)
-	inSecond = make(map[linkEnd]int)
-	for _, link := range links {
-		if repeatContig[link.from] || repeatContig[link.to] {
-			continue
-		}
-		if _, ok := validLink(link); ok {
-			update(outBest, outSecond, linkEnd{link.from, link.fromEnd, link.fromRev}, link.support)
-			update(inBest, inSecond, linkEnd{link.to, link.toEnd, link.toRev}, link.support)
-		}
-	}
+	return repeatContig
+}
+
+func buildScaffoldLinks(mapped []mappedReadPair, contigs []string, insert int, fr bool) []contigLink {
+	links := collectScaffoldLinks(mapped, contigs, insert, fr)
+	outBest, outSecond, inBest, inSecond := tallyLinkSupport(links, contigs, nil, 250, true)
+	repeatContig := findRepeatContigs(len(contigs), outBest, outSecond, inBest, inSecond)
+	outBest, outSecond, inBest, inSecond = tallyLinkSupport(links, contigs, repeatContig, 0, false)
 
 	selected := make([]contigLink, 0, len(links))
 	for _, link := range links {
 		if repeatContig[link.from] || repeatContig[link.to] {
 			continue
 		}
-		fromKey := linkEnd{link.from, link.fromEnd, link.fromRev}
-		toKey := linkEnd{link.to, link.toEnd, link.toRev}
-		if _, ok := validLink(link); !ok {
+		if _, ok := validScaffoldLink(link); !ok {
 			continue
 		}
+		fromKey := linkEnd{link.from, link.fromEnd, link.fromRev}
+		toKey := linkEnd{link.to, link.toEnd, link.toRev}
 		if link.support != outBest[fromKey] || link.support != inBest[toKey] {
 			continue
 		}
@@ -2171,7 +2029,21 @@ func buildScaffoldLinks(mapped []mappedReadPair, contigs []string, insert int, f
 		if selected[i].support != selected[j].support {
 			return selected[i].support > selected[j].support
 		}
-		return selected[i].gapTotal/selected[i].support < selected[j].gapTotal/selected[j].support
+		gi := selected[i].gapTotal / selected[i].support
+		gj := selected[j].gapTotal / selected[j].support
+		if gi != gj {
+			return gi < gj
+		}
+		if selected[i].from != selected[j].from {
+			return selected[i].from < selected[j].from
+		}
+		if selected[i].to != selected[j].to {
+			return selected[i].to < selected[j].to
+		}
+		if selected[i].fromRev != selected[j].fromRev {
+			return !selected[i].fromRev
+		}
+		return !selected[i].toRev && selected[j].toRev
 	})
 	return selected
 }
@@ -2855,16 +2727,8 @@ func consensusBaseFromVotes(v []uint32, p int, fallback byte) byte {
 	return base
 }
 
-// polishAlignSpanIndel aligns seq against contig[cStart:cEnd], allowing free
-// overhanging query ends at contig boundaries, records substitution, deletion,
-// and insertion votes, and returns (refStart, refEnd, queryStart, queryEnd, matches, buffer).
-func polishAlignSpanIndel(seq []byte, contig string, cStart, cEnd int, votes, delVotes []uint32, insVotes map[int32]map[string]int, buffer []int32) (int, int, int, int, int, []int32) {
-	window := contig[cStart:cEnd]
-	L := len(seq)
-	W := len(window)
-	if L == 0 || W == 0 {
-		return 0, 0, 0, 0, 0, buffer
-	}
+func fillPolishDP(seq []byte, window string, freeLeft, freeRight bool, buffer []int32) ([]int32, int, int, int) {
+	L, W := len(seq), len(window)
 	width := W + 1
 	need := (L + 1) * width
 	if len(buffer) < need {
@@ -2875,7 +2739,7 @@ func polishAlignSpanIndel(seq []byte, contig string, cStart, cEnd int, votes, de
 		dp[j] = 0
 	}
 	for i := 1; i <= L; i++ {
-		if cStart == 0 {
+		if freeLeft {
 			dp[i*width] = 0
 		} else {
 			dp[i*width] = int32(-6 * i)
@@ -2898,28 +2762,25 @@ func polishAlignSpanIndel(seq []byte, contig string, cStart, cEnd int, votes, de
 			dp[i*width+j] = best
 		}
 	}
-	bestScore := dp[L*width+W]
-	bestI := L
-	bestJ := W
+	bestScore, bestI, bestJ := dp[L*width+W], L, W
 	for j := 0; j <= W; j++ {
 		if dp[L*width+j] > bestScore {
-			bestScore = dp[L*width+j]
-			bestJ = j
-			bestI = L
+			bestScore, bestI, bestJ = dp[L*width+j], L, j
 		}
 	}
-	if cEnd == len(contig) {
+	if freeRight {
 		for i := 1; i <= L; i++ {
 			if dp[i*width+W] > bestScore {
-				bestScore = dp[i*width+W]
-				bestI = i
-				bestJ = W
+				bestScore, bestI, bestJ = dp[i*width+W], i, W
 			}
 		}
 	}
+	return buffer, width, bestI, bestJ
+}
+
+func tracebackPolishDP(seq []byte, window string, dp []int32, width, bestI, bestJ, cStart int, votes, delVotes []uint32, insVotes map[int32]map[string]int) (int, int, int, int, int) {
 	i, j := bestI, bestJ
-	matches := 0
-	firstJ := j
+	matches, firstJ := 0, j
 	var insBuf [32]byte
 	insLen := 0
 	flushIns := func(refPos int32) {
@@ -2928,13 +2789,12 @@ func polishAlignSpanIndel(seq []byte, contig string, cStart, cEnd int, votes, de
 			for k := 0; k < insLen; k++ {
 				fwd[k] = insBuf[insLen-1-k]
 			}
-			s := string(fwd[:insLen])
 			m := insVotes[refPos]
 			if m == nil {
 				m = make(map[string]int, 2)
 				insVotes[refPos] = m
 			}
-			m[s]++
+			m[string(fwd[:insLen])]++
 		}
 		insLen = 0
 	}
@@ -2973,7 +2833,21 @@ func polishAlignSpanIndel(seq []byte, contig string, cStart, cEnd int, votes, de
 			firstJ = j
 		}
 	}
-	return firstJ + cStart, bestJ + cStart, i, bestI, matches, buffer
+	return firstJ + cStart, bestJ + cStart, i, bestI, matches
+}
+
+// polishAlignSpanIndel aligns seq against contig[cStart:cEnd], allowing free
+// overhanging query ends at contig boundaries, records substitution, deletion,
+// and insertion votes, and returns (refStart, refEnd, queryStart, queryEnd, matches, buffer).
+func polishAlignSpanIndel(seq []byte, contig string, cStart, cEnd int, votes, delVotes []uint32, insVotes map[int32]map[string]int, buffer []int32) (int, int, int, int, int, []int32) {
+	window := contig[cStart:cEnd]
+	if len(seq) == 0 || len(window) == 0 {
+		return 0, 0, 0, 0, 0, buffer
+	}
+	buffer, width, bestI, bestJ := fillPolishDP(seq, window, cStart == 0, cEnd == len(contig), buffer)
+	dp := buffer[:(len(seq)+1)*width]
+	rStart, rEnd, qStart, qEnd, matches := tracebackPolishDP(seq, window, dp, width, bestI, bestJ, cStart, votes, delVotes, insVotes)
+	return rStart, rEnd, qStart, qEnd, matches, buffer
 }
 
 // polishAlignSpan aligns seq against contig[cStart:cEnd], allowing free
@@ -3075,16 +2949,6 @@ func bigBases(contigs []string) int {
 		}
 	}
 	return total
-}
-
-func maxContig(contigs []string) int {
-	longest := 0
-	for _, contig := range contigs {
-		if len(contig) > longest {
-			longest = len(contig)
-		}
-	}
-	return longest
 }
 
 // bigN50 is the N50 of contigs of at least 500 bases, a reference-free
@@ -3268,22 +3132,35 @@ func maybePolish(reads [][]byte, pairs []readPair, paired bool, draft []string, 
 	return polishReadsAgainst(reads, pairs, paired, draft)
 }
 
-func main() {
-	debug.SetGCPercent(50)
-	debug.SetMemoryLimit(2000 << 20)
-	input := readAllStdin()
-	dataset := parseAssemblerDataset(input)
-	input = nil
-	runtime.GC()
-	var readsSnapshot [][]byte
-	if len(dataset.reads) <= 400_000 {
-		readsSnapshot = make([][]byte, len(dataset.reads))
-		copy(readsSnapshot, dataset.reads)
-	}
+func assembleAndScaffold(dataset *assemblerDataset) ([]string, *countedKMers, int) {
 	contigs, counts, k := assembleDataset(dataset)
 	if dataset.paired {
 		contigs = scaffoldContigs(contigs, dataset.pairs, 21, counts, k)
 	}
+	return contigs, counts, k
+}
+
+func cloneReads(reads [][]byte) [][]byte {
+	copied := make([][]byte, len(reads))
+	for i, read := range reads {
+		buf := make([]byte, len(read))
+		copy(buf, read)
+		copied[i] = buf
+	}
+	return copied
+}
+
+func countKMerInstances(reads [][]byte, k int) int {
+	total := 0
+	for _, read := range reads {
+		if len(read) >= k {
+			total += len(read) - k + 1
+		}
+	}
+	return total
+}
+
+func runPolishLoop(contigs []string, counts *countedKMers, k int, readsSnapshot [][]byte, pairs []readPair, paired bool) []string {
 	best := contigs
 	bestBig := bigBases(best)
 	bestN50 := bigN50(best)
@@ -3292,13 +3169,7 @@ func main() {
 		maxRounds = 8
 	}
 	for round := 0; round < maxRounds; round++ {
-		kmerInstances := 0
-		for _, read := range readsSnapshot {
-			if len(read) >= k {
-				kmerInstances += len(read) - k + 1
-			}
-		}
-		polished := maybePolish(readsSnapshot, dataset.pairs, dataset.paired, best, counts, kmerInstances)
+		polished := maybePolish(readsSnapshot, pairs, paired, best, counts, countKMerInstances(readsSnapshot, k))
 		if polished == nil {
 			break
 		}
@@ -3312,212 +3183,54 @@ func main() {
 		polished.resolveForksAlways = true
 		var retryDataset *assemblerDataset
 		if len(readsSnapshot) <= 100_000 {
-			readsCopy := make([][]byte, len(polished.reads))
-			for ri, r := range polished.reads {
-				cp := make([]byte, len(r))
-				copy(cp, r)
-				readsCopy[ri] = cp
+			retryDataset = &assemblerDataset{
+				reads:              cloneReads(polished.reads),
+				pairs:              polished.pairs,
+				paired:             polished.paired,
+				resolveForksAlways: true,
 			}
-			retryDataset = &assemblerDataset{reads: readsCopy, pairs: polished.pairs, paired: polished.paired, resolveForksAlways: true}
 		}
-		contigs2, counts2, k2 := assembleDataset(polished)
-		if polished.paired {
-			contigs2 = scaffoldContigs(contigs2, polished.pairs, 21, counts2, k2)
-		}
-		big2 := bigBases(contigs2)
+		contigs2, counts2, k2 := assembleAndScaffold(polished)
+		big2, n50_2 := bigBases(contigs2), bigN50(contigs2)
 		// Guard against repeat-shattered or duplicated assemblies that
-		// inflate raw base counts while lowering true contiguity: only a
-		// clear improvement in contig-N50 without losing assembled bases
-		// replaces the incumbent. If k jumped above the previous k and
-		// shattered shorter/variable reads, retry the round capped at k.
-		n50_2 := bigN50(contigs2)
+		// inflate raw base counts while lowering true contiguity. If k jumped
+		// above the previous k and shattered shorter reads, retry capped at k.
 		if (n50_2 <= bestN50 || big2 < bestBig*95/100) && retryDataset != nil && k2 > k && k >= 21 {
 			retryDataset.kMaxCap = k
-			contigs2, counts2, k2 = assembleDataset(retryDataset)
-			if retryDataset.paired {
-				contigs2 = scaffoldContigs(contigs2, retryDataset.pairs, 21, counts2, k2)
-			}
-			big2 = bigBases(contigs2)
-			n50_2 = bigN50(contigs2)
+			contigs2, counts2, k2 = assembleAndScaffold(retryDataset)
+			big2, n50_2 = bigBases(contigs2), bigN50(contigs2)
 		}
 		retryDataset = nil
 		if n50_2 <= bestN50 || big2 < bestBig*95/100 {
 			break
 		}
-		best = contigs2
-		bestBig = big2
-		bestN50 = n50_2
-		counts = counts2
-		k = k2
+		best, bestBig, bestN50 = contigs2, big2, n50_2
+		counts, k = counts2, k2
 	}
-	contigs = best
-	output := formatFASTA(contigs)
-	if output != "" {
+	return best
+}
+
+func main() {
+	debug.SetGCPercent(50)
+	debug.SetMemoryLimit(2000 << 20)
+	input := readAllStdin()
+	dataset := parseAssemblerDataset(input)
+	input = nil
+	runtime.GC()
+	var readsSnapshot [][]byte
+	if len(dataset.reads) <= 400_000 {
+		readsSnapshot = make([][]byte, len(dataset.reads))
+		copy(readsSnapshot, dataset.reads)
+	}
+	contigs, counts, k := assembleAndScaffold(dataset)
+	contigs = runPolishLoop(contigs, counts, k, readsSnapshot, dataset.pairs, dataset.paired)
+	if output := formatFASTA(contigs); output != "" {
 		fmt.Println(output)
 	}
 }
 
 // The helpers below are inlined from dsa/course_6_genome_assembly/internal/assembly
 // so that this file can be submitted to Coursera as a single Go file.
-
-// FindEulerianCycle returns an Eulerian cycle as a sequence of vertices. The
-// returned path repeats the starting vertex at the end.
-func FindEulerianCycle(n int, edges [][2]int) ([]int, bool) {
-	if len(edges) == 0 {
-		return nil, true
-	}
-
-	adjacency := make([][]int, n)
-	for id, edge := range edges {
-		if edge[0] < 0 || edge[0] >= n || edge[1] < 0 || edge[1] >= n {
-			return nil, false
-		}
-		adjacency[edge[0]] = append(adjacency[edge[0]], id)
-	}
-	if !hasEulerianCycle(n, edges) {
-		return nil, false
-	}
-
-	start := -1
-	for vertex := 0; vertex < n; vertex++ {
-		if len(adjacency[vertex]) > 0 {
-			start = vertex
-			break
-		}
-	}
-	if start < 0 {
-		return nil, false
-	}
-
-	stack := []int{start}
-	path := make([]int, 0, len(edges)+1)
-	for len(stack) > 0 {
-		vertex := stack[len(stack)-1]
-		if len(adjacency[vertex]) > 0 {
-			edgeID := adjacency[vertex][len(adjacency[vertex])-1]
-			adjacency[vertex] = adjacency[vertex][:len(adjacency[vertex])-1]
-			stack = append(stack, edges[edgeID][1])
-		} else {
-			path = append(path, vertex)
-			stack = stack[:len(stack)-1]
-		}
-	}
-	if len(path) != len(edges)+1 {
-		return nil, false
-	}
-	for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
-		path[i], path[j] = path[j], path[i]
-	}
-	return path, true
-}
-
-func hasEulerianCycle(n int, edges [][2]int) bool {
-	inDegree := make([]int, n)
-	outDegree := make([]int, n)
-	for _, edge := range edges {
-		outDegree[edge[0]]++
-		inDegree[edge[1]]++
-	}
-	for i := 0; i < n; i++ {
-		if inDegree[i] != outDegree[i] {
-			return false
-		}
-	}
-	return true
-}
-
-// MaxOverlap returns the longest suffix of first that is a prefix of second.
-func MaxOverlap(first, second string) int {
-	limit := len(first)
-	if len(second) < limit {
-		limit = len(second)
-	}
-	for size := limit; size > 0; size-- {
-		if first[len(first)-size:] == second[:size] {
-			return size
-		}
-	}
-	return 0
-}
-
-// CircularSuperstring returns the shortest circular superstring of a small set
-// of reads, or an empty string when the read count is too large.
-func CircularSuperstring(reads []string) string {
-	n := len(reads)
-	if n == 0 {
-		return ""
-	}
-	if n > 9 {
-		return ""
-	}
-	used := make([]bool, n)
-	order := make([]int, 0, n)
-	bestLength := 1 << 30
-	best := ""
-	var search func()
-	search = func() {
-		if len(order) == n {
-			total := 0
-			length := 0
-			for i, read := range order {
-				total += len(reads[read])
-				if i > 0 {
-					total -= MaxOverlap(reads[order[i-1]], reads[read])
-				}
-				length = len(reads[read])
-			}
-			_ = length
-			closing := MaxOverlap(reads[order[n-1]], reads[order[0]])
-			total -= closing
-			if total > bestLength {
-				return
-			}
-			var builder strings.Builder
-			builder.WriteString(reads[order[0]])
-			for i := 1; i < n; i++ {
-				overlap := MaxOverlap(reads[order[i-1]], reads[order[i]])
-				builder.WriteString(reads[order[i]][overlap:])
-			}
-			genome := builder.String()
-			if closing > 0 {
-				genome = genome[:len(genome)-closing]
-			}
-			if total < bestLength || (total == bestLength && (best == "" || genome < best)) {
-				bestLength = total
-				best = genome
-			}
-			return
-		}
-		for i := 0; i < n; i++ {
-			if used[i] {
-				continue
-			}
-			used[i] = true
-			order = append(order, i)
-			search()
-			order = order[:len(order)-1]
-			used[i] = false
-		}
-	}
-	search()
-	return best
-}
-
-// UniqueKMers returns all distinct k-mers from the reads, sorted.
-func UniqueKMers(reads []string, k int) []string {
-	seen := make(map[string]bool)
-	for _, read := range reads {
-		for i := 0; i+k <= len(read); i++ {
-			seen[read[i:i+k]] = true
-		}
-	}
-	result := make([]string, 0, len(seen))
-	for kmer := range seen {
-		result = append(result, kmer)
-	}
-	sort.Strings(result)
-	return result
-}
 
 // KMinusOneMers returns the sorted distinct prefixes and suffixes of length
 // k-1 of the given k-mers.
