@@ -30,7 +30,10 @@ func TestGoSolutionsAreSelfContained(t *testing.T) {
 		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 			return nil
 		}
-		if strings.Contains(path, string(filepath.Separator)+"internal"+string(filepath.Separator)) {
+		// internal/ holds repository tooling, not Coursera submissions.
+		internalDir := "internal" + string(filepath.Separator)
+		if strings.HasPrefix(path, internalDir) ||
+			strings.Contains(path, string(filepath.Separator)+internalDir) {
 			return nil
 		}
 
@@ -58,7 +61,12 @@ func TestGoSolutionsAreSelfContained(t *testing.T) {
 
 	for dir, files := range solutions {
 		if len(files) > 1 {
-			t.Errorf("%s has %d non-test Go files; a Coursera submission must be one file: %v", dir, len(files), files)
+			t.Errorf(
+				"%s has %d non-test Go files; a Coursera submission must be one file: %v",
+				dir,
+				len(files),
+				files,
+			)
 		}
 	}
 }

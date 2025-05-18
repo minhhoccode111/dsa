@@ -207,6 +207,27 @@ go test ./...
 
 Each Go solution has a matching `_test.go` file with fixture checks and edge cases. Every Go solution file is self-contained: shared helpers used by several assignments are inlined so that the file can be submitted to Coursera as a single source file. The `internal/` packages are kept for tests and are not required by a submission.
 
+### Generated fixtures
+
+Some problems have extra `test/<number>` and `test/<number>.a` pairs produced by
+`internal/genfixtures`. They are best-effort coverage fixtures, not official
+Coursera test data. The expected output is the Go solution's stdout; inputs are
+mutated from the existing fixtures and kept only when they reach new reachable
+code. The generator applies shape checks and records Python disagreements as
+warnings; Go remains the oracle. An input can still fall outside the original
+problem constraints, and problems with several valid answers may have
+implementation-specific `.a` files.
+
+See [`docs/generated-fixtures.md`](docs/generated-fixtures.md) for per-problem
+coverage and caveats. Regenerate with:
+
+```sh
+go run ./internal/genfixtures -write
+```
+
+Use `-only <regexp>` to target one problem and `-max-new`, `-rounds`, `-batch`
+to change the effort. `internal/genfixtures/README.md` documents the pipeline.
+
 <details>
 <summary><strong>Command explain</strong></summary>
 
