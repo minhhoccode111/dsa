@@ -11,6 +11,20 @@ This repository contains both Python and Go implementations of the assignments. 
 - Python 3
 - Go 1.21+ (`go.mod` uses the `dsa` module)
 
+## Commands
+
+Run `make help` for the live list. Targets are documented in the `Makefile` with
+`##` comments.
+
+| Target | Description |
+|---|---|
+| `make test` | Run Go unit tests |
+| `make fixtures` | Run Go IO fixtures (`test/<name>` against `test/<name>.a`) |
+| `make fixtures-python` | Run the same fixtures with Python solutions |
+
+`make fixtures` builds each Go solution once, checks every fixture, prints
+failures, and exits non-zero on failure. It writes no files.
+
 ## Course 1 - [Algorithmic Toolbox](https://www.coursera.org/learn/algorithmic-toolbox)
 
 ## Course 2 - [Data Structures](https://www.coursera.org/learn/data-structures)
@@ -192,17 +206,20 @@ go test -run TestVisibleDatasetAssembly ./course_6_genome_assembly/week_3_faces_
 ## Problems
 
 Weekly assignments can be found at `/resources`\
-Solutions and test files can be tested using the following commands (the commands write their output to the `out` file in the problem directory):
+Fixture files are `test/<name>` plus `test/<name>.a`. A single runner checks them
+without writing intermediate files:
 
 ```sh
-# Python
-diff -b <(python3 solution.py < test/1) <(cat test/1.a)
+make help          # list targets and descriptions
+make test          # Go unit tests
+make fixtures      # Go IO fixtures
+make fixtures-python
 
-# Go (from the problem directory)
-diff -b <(go run solution.go < test/2) <(cat test/2.a)
+# One problem, verbose
+go run ./internal/checkfixtures -only 'week_2_linear_programming' -v
 
-# Run every Go test from the repository root
-go test ./...
+# C/C++: compile a binary named solution in each problem directory
+go run ./internal/checkfixtures -bin ./solution
 ```
 
 Each Go solution has a matching `_test.go` file with fixture checks and edge cases. Every Go solution file is self-contained: shared helpers used by several assignments are inlined so that the file can be submitted to Coursera as a single source file. The `internal/` packages are kept for tests and are not required by a submission.
@@ -228,19 +245,12 @@ go run ./internal/genfixtures -write
 Use `-only <regexp>` to target one problem and `-max-new`, `-rounds`, `-batch`
 to change the effort. `internal/genfixtures/README.md` documents the pipeline.
 
-<details>
-<summary><strong>Command explain</strong></summary>
-
-This command compares the output of the Python script (`solution.py`) when run with the input file (`test/1`) against the expected output stored in `test/1.a`. The `-b` flag ensures that differences in whitespace are ignored during the comparison.
-
-- `diff`: A command-line utility used to compare two files line by line and output the differences between them. If there are no differences, it produces no output.
-- `-b`: An option for `diff` that ignores differences in the amount of whitespace. For example, differences in the number of spaces or tabs will be overlooked.
-- `<(python3 solution.py < test/1)`: A process substitution that runs `python3 solution.py` with the input redirected from the file `test/1`. This executes the Python script `solution.py` using `test/1` as its input and provides its output as a temporary file-like stream to `diff`.
-- `<(cat test/1.a)`: Another process substitution that runs `cat test/1.a`, effectively reading the contents of the file `test/1.a` and providing it as another temporary file-like stream to `diff`.
-- `solution.py`: your solution file
-- `test/1`: provided input file
-- `test/1.a`: expected output file
-
-The Go variant is the same: `solution.go` is the program and `go run solution.go < test/2` compiles and runs it. From the repository root, `go test ./...` runs the full Go test suite, including fixture comparisons and edge cases for every solution.
-
-</details>
+The runner compares whitespace-insensitively by default and allows a relative
+tolerance for floating-point tokens. Problems with non-unique outputs are listed
+explicitly in `internal/checkfixtures/modes.go`; they use rotation/set comparison
+or a smoke check, and smoke results are reported as `SKIP`, not `PASS`.
+`internal/checkfixtures/checker.go` adds semantic checks for topological order,
+binary de Bruijn cycles, non-shared substrings, and longest common substrings.
+The remaining smoke checks are `gsm_network`, `cleaning_apartment`, and
+`suffix_tree_from_array`. `internal/checkfixtures/README.md` documents the modes,
+checkers, and flags.

@@ -1,3 +1,0 @@
-diff <(python gcd.py < test/1) <(cat test/1.a)
-
-diff <(python starter.py < test/1) <(cat test/1.a)

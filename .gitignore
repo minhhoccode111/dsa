@@ -8,3 +8,6 @@ __pycache__/
 
 # Vim temporary swap files
 *.swp
+
+# ad-hoc solution output
+out
