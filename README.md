@@ -16,11 +16,11 @@ This repository contains both Python and Go implementations of the assignments. 
 Run `make help` for the live list. Targets are documented in the `Makefile` with
 `##` comments.
 
-| Target | Description |
-|---|---|
-| `make test` | Run Go unit tests |
-| `make fixtures` | Run Go IO fixtures (`test/<name>` against `test/<name>.a`) |
-| `make fixtures-python` | Run the same fixtures with Python solutions |
+| Target                 | Description                                                |
+| ---------------------- | ---------------------------------------------------------- |
+| `make test`            | Run Go unit tests                                          |
+| `make fixtures`        | Run Go IO fixtures (`test/<name>` against `test/<name>.a`) |
+| `make fixtures-python` | Run the same fixtures with Python solutions                |
 
 `make fixtures` builds each Go solution once, checks every fixture, prints
 failures, and exits non-zero on failure. It writes no files.
@@ -68,8 +68,9 @@ read-pairs, 132,568 for 700,000 error-free forward-forward read-pairs, and
 correction proxy took 176 s and 1.8 GB, inside the grader's observed 450 s and
 4 GB limits. Hidden dataset quality is still not guaranteed.
 
-`test/dataset.txt` and `test/genome.txt` are optional local fixtures. They are
-not committed. The visible-dataset test skips when they are absent:
+`test/dataset.txt` and `test/genome.txt` are committed fixtures: 33,609 reads
+of 100 bp and a 112,031 bp reference genome. The visible-dataset test runs
+directly:
 
 ```bash
 go test -run TestVisibleDatasetAssembly ./course_6_genome_assembly/week_3_faces_real_sequencing_data/6_implementing_an_assembler -v
@@ -205,7 +206,10 @@ go test -run TestVisibleDatasetAssembly ./course_6_genome_assembly/week_3_faces_
 
 ## Problems
 
-Weekly assignments can be found at `/resources`\
+Weekly assignments can be found at `/resources`. Per-problem PDF sections, input
+and output shapes, test counts, and comparison modes are listed in
+[`docs/problem-index.md`](docs/problem-index.md).
+
 Fixture files are `test/<name>` plus `test/<name>.a`. A single runner checks them
 without writing intermediate files:
 
