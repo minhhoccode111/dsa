@@ -48,8 +48,8 @@ Fixture files are `test/N` plus `test/N.a`. Some are generated; see `docs/genera
 | [2_maximum_value_of_the_loot](../course_1_algorithmic_toolbox/week_3_greedy_algorithms/2_maximum_value_of_the_loot) | 2 | [§3.2.2 · p. 57](../resources/course_1_assignments.pdf#page=57) | n W; (c_i,w_i)[] → max value | `float (stmt 1e-3)` |
 | [3_car_fueling](../course_1_algorithmic_toolbox/week_3_greedy_algorithms/3_car_fueling) | 3 | [§3.2.3 · p. 59](../resources/course_1_assignments.pdf#page=59) | d, m, stops[] → min refills or -1 | `normal` |
 | [4_maximum_advertisement_revenue](../course_1_algorithmic_toolbox/week_3_greedy_algorithms/4_maximum_advertisement_revenue) | 2 | [§3.2.4 · p. 61](../resources/course_1_assignments.pdf#page=61) | n, price[], clicks[] → max Σ price·click | `normal` |
-| [5_collecting_signatures](../course_1_algorithmic_toolbox/week_3_greedy_algorithms/5_collecting_signatures) | 2 | [§3.2.5 · p. 63](../resources/course_1_assignments.pdf#page=63) | n, [l_i,r_i][] → k; k points | `manual` |
-| [6_maximum_number_of_prizes](../course_1_algorithmic_toolbox/week_3_greedy_algorithms/6_maximum_number_of_prizes) | 3 | [§3.2.6 · p. 65](../resources/course_1_assignments.pdf#page=65) | n → k; k distinct ints summing n | `manual` |
+| [5_collecting_signatures](../course_1_algorithmic_toolbox/week_3_greedy_algorithms/5_collecting_signatures) | 2 | [§3.2.5 · p. 63](../resources/course_1_assignments.pdf#page=63) | n, [l_i,r_i][] → k; k points | `semantic` |
+| [6_maximum_number_of_prizes](../course_1_algorithmic_toolbox/week_3_greedy_algorithms/6_maximum_number_of_prizes) | 3 | [§3.2.6 · p. 65](../resources/course_1_assignments.pdf#page=65) | n → k; k distinct ints summing n | `semantic` |
 | [7_maximum_salary](../course_1_algorithmic_toolbox/week_3_greedy_algorithms/7_maximum_salary) | 3 | [§3.2.7 · p. 67](../resources/course_1_assignments.pdf#page=67) | n, a[] → largest concatenation | `normal` |
 
 ### Week 4 — Divide and conquer
@@ -69,7 +69,7 @@ Fixture files are `test/N` plus `test/N.a`. Some are generated; see `docs/genera
 | Problem | Tests | PDF | Input → output | Check |
 | --- | ---: | --- | --- | --- |
 | [1_money_change_again](../course_1_algorithmic_toolbox/week_5_dynamic_programming_1/1_money_change_again) | 1 | [§5.2.1 · p. 131](../resources/course_1_assignments.pdf#page=131) | money → min #coins 1,3,4 | `normal` |
-| [2_primitive_calculator](../course_1_algorithmic_toolbox/week_5_dynamic_programming_1/2_primitive_calculator) | 2 | [§5.2.2 · p. 132](../resources/course_1_assignments.pdf#page=132) | n → k; sequence 1→n | `manual` |
+| [2_primitive_calculator](../course_1_algorithmic_toolbox/week_5_dynamic_programming_1/2_primitive_calculator) | 2 | [§5.2.2 · p. 132](../resources/course_1_assignments.pdf#page=132) | n → k; sequence 1→n | `semantic` |
 | [3_edit_distance](../course_1_algorithmic_toolbox/week_5_dynamic_programming_1/3_edit_distance) | 3 | [§5.2.3 · p. 134](../resources/course_1_assignments.pdf#page=134) | s t → edit distance | `normal` |
 | [4_longest_common_subsequence_of_two_sequences](../course_1_algorithmic_toolbox/week_5_dynamic_programming_1/4_longest_common_subsequence_of_two_sequences) | 3 | [§5.2.4 · p. 136](../resources/course_1_assignments.pdf#page=136) | n, a[]; m, b[] → LCS length | `normal` |
 | [5_longest_common_subsequence_of_three_sequences](../course_1_algorithmic_toolbox/week_5_dynamic_programming_1/5_longest_common_subsequence_of_three_sequences) | 2 | [§5.2.5 · p. 138](../resources/course_1_assignments.pdf#page=138) | n, a[]; m, b[]; l, c[] → LCS length | `normal` |
@@ -98,7 +98,7 @@ Fixture files are `test/N` plus `test/N.a`. Some are generated; see `docs/genera
 
 | Problem | Tests | PDF | Input → output | Check |
 | --- | ---: | --- | --- | --- |
-| [1_make_heap](../course_2_data_structures/week_2_priority_queues_and_disjoint_sets/1_make_heap) | 2 | [§1 · p. 2](../resources/course_2_assignments_week_2.pdf#page=2) | n, a[] → m; m swap pairs | `manual` |
+| [1_make_heap](../course_2_data_structures/week_2_priority_queues_and_disjoint_sets/1_make_heap) | 2 | [§1 · p. 2](../resources/course_2_assignments_week_2.pdf#page=2) | n, a[] → m; m swap pairs | `semantic` |
 | [2_job_queue](../course_2_data_structures/week_2_priority_queues_and_disjoint_sets/2_job_queue) | 2 | [§2 · p. 4](../resources/course_2_assignments_week_2.pdf#page=4) | n m; t[] → thread,start per job | `normal` |
 | [3_merging_tables](../course_2_data_structures/week_2_priority_queues_and_disjoint_sets/3_merging_tables) | 2 | [§3 · p. 6](../resources/course_2_assignments_week_2.pdf#page=6) | n m; r[]; merge queries → max sizes | `normal` |
 
@@ -170,7 +170,7 @@ Fixture files are `test/N` plus `test/N.a`. Some are generated; see `docs/genera
 | [2_dist_with_coords](../course_3_algorithms_on_graphs/week_6_advanced_shortest_paths/2_dist_with_coords) | 3 | [§2 · p. 6](../resources/course_3_assignments_week_6.pdf#page=6) | n m; coords; edges; q → distances | `normal` |
 | [3_dist_preprocess_small](../course_3_algorithms_on_graphs/week_6_advanced_shortest_paths/3_dist_preprocess_small) | 8 | [§3 · p. 9](../resources/course_3_assignments_week_6.pdf#page=9) | n m; edges; q → distances | `normal` |
 | [4_dist_preprocess_large](../course_3_algorithms_on_graphs/week_6_advanced_shortest_paths/4_dist_preprocess_large) | 10 | [§4 · p. 12](../resources/course_3_assignments_week_6.pdf#page=12) | n m; edges; q → distances | `normal` |
-| [5_travelling_salesman_problem](../course_3_algorithms_on_graphs/week_6_advanced_shortest_paths/5_travelling_salesman_problem) | 9 | [§5 · p. 14](../resources/course_3_assignments_week_6.pdf#page=14) | n m; edges → min cost; tour | `manual` |
+| [5_travelling_salesman_problem](../course_3_algorithms_on_graphs/week_6_advanced_shortest_paths/5_travelling_salesman_problem) | 9 | [§5 · p. 14](../resources/course_3_assignments_week_6.pdf#page=14) | n m; edges; q queries → Ready + q min costs | `normal` |
 
 ## Course 4 — Algorithms on Strings
 
@@ -200,7 +200,7 @@ Fixture files are `test/N` plus `test/N.a`. Some are generated; see `docs/genera
 | [1_kmp](../course_4_algorithms_on_strings/week_4_constructing_suffix_arrays_and_suffix_trees/1_kmp) | 3 | [§1 · p. 3](../resources/course_4_assignments_week_3.pdf#page=3) | Pattern Genome → positions | `normal` |
 | [2_suffix_array_long](../course_4_algorithms_on_strings/week_4_constructing_suffix_arrays_and_suffix_trees/2_suffix_array_long) | 4 | [§2 · p. 5](../resources/course_4_assignments_week_3.pdf#page=5) | Text$ → suffix array | `normal` |
 | [3_suffix_array_matching](../course_4_algorithms_on_strings/week_4_constructing_suffix_arrays_and_suffix_trees/3_suffix_array_matching) | 3 | [§3 · p. 7](../resources/course_4_assignments_week_3.pdf#page=7) | Text; n; patterns[] → positions | `unordered tokens` |
-| [4_suffix_tree_from_array](../course_4_algorithms_on_strings/week_4_constructing_suffix_arrays_and_suffix_trees/4_suffix_tree_from_array) | 3 | [§4 · p. 9](../resources/course_4_assignments_week_3.pdf#page=9) | Text$; SA; LCP → Text + edges | `smoke` |
+| [4_suffix_tree_from_array](../course_4_algorithms_on_strings/week_4_constructing_suffix_arrays_and_suffix_trees/4_suffix_tree_from_array) | 3 | [§4 · p. 9](../resources/course_4_assignments_week_3.pdf#page=9) | Text$; SA; LCP → Text + edges | `semantic` |
 
 ## Course 5 — Advanced Algorithms and Complexity
 
@@ -209,7 +209,7 @@ Fixture files are `test/N` plus `test/N.a`. Some are generated; see `docs/genera
 | Problem | Tests | PDF | Input → output | Check |
 | --- | ---: | --- | --- | --- |
 | [1_evacuation](../course_5_advanced_algorithms_and_complexity/week_1_flows_in_networks/1_evacuation) | 19 | [§1 · p. 3](../resources/course_5_assignments_week_1.pdf#page=3) | n m; edges (u,v,c) → max flow | `normal` |
-| [2_airline_crews](../course_5_advanced_algorithms_and_complexity/week_1_flows_in_networks/2_airline_crews) | 20 | [§2 · p. 6](../resources/course_5_assignments_week_1.pdf#page=6) | n m; matrix → crew per flight | `manual` |
+| [2_airline_crews](../course_5_advanced_algorithms_and_complexity/week_1_flows_in_networks/2_airline_crews) | 20 | [§2 · p. 6](../resources/course_5_assignments_week_1.pdf#page=6) | n m; matrix → crew per flight | `semantic` |
 | [3_stock_charts](../course_5_advanced_algorithms_and_complexity/week_1_flows_in_networks/3_stock_charts) | 36 | [§3 · p. 8](../resources/course_5_assignments_week_1.pdf#page=8) | n k; prices[] → min charts | `normal` |
 
 ### Week 2 — Linear programming
@@ -217,25 +217,25 @@ Fixture files are `test/N` plus `test/N.a`. Some are generated; see `docs/genera
 | Problem | Tests | PDF | Input → output | Check |
 | --- | ---: | --- | --- | --- |
 | [1_energy_values](../course_5_advanced_algorithms_and_complexity/week_2_linear_programming/1_energy_values) | 4 | [§1 · p. 3](../resources/course_5_assignments_week_2.pdf#page=3) | n; n×n matrix → values | `float (stmt 1e-2)` |
-| [2_diet](../course_5_advanced_algorithms_and_complexity/week_2_linear_programming/2_diet) | 8 | [§2 · p. 6](../resources/course_5_assignments_week_2.pdf#page=6) | n m; A,b,c → status + x[] | `manual` |
-| [3_ad_allocation](../course_5_advanced_algorithms_and_complexity/week_2_linear_programming/3_ad_allocation) | 9 | [§3 · p. 10](../resources/course_5_assignments_week_2.pdf#page=10) | p q; A,b,c → status + x[] | `manual` |
+| [2_diet](../course_5_advanced_algorithms_and_complexity/week_2_linear_programming/2_diet) | 8 | [§2 · p. 6](../resources/course_5_assignments_week_2.pdf#page=6) | n m; A,b,c → status + x[] | `semantic` |
+| [3_ad_allocation](../course_5_advanced_algorithms_and_complexity/week_2_linear_programming/3_ad_allocation) | 9 | [§3 · p. 10](../resources/course_5_assignments_week_2.pdf#page=10) | p q; A,b,c → status + x[] | `semantic` |
 
 ### Week 3 — NP-complete problems
 
 | Problem | Tests | PDF | Input → output | Check |
 | --- | ---: | --- | --- | --- |
-| [1_gsm_network](../course_5_advanced_algorithms_and_complexity/week_3_NP_complete_problems/1_gsm_network) | 2 | [§1 · p. 3](../resources/course_5_assignments_week_3.pdf#page=3) | n m; edges → CNF | `smoke` |
-| [2_cleaning_apartment](../course_5_advanced_algorithms_and_complexity/week_3_NP_complete_problems/2_cleaning_apartment) | 2 | [§2 · p. 6](../resources/course_5_assignments_week_3.pdf#page=6) | n m; edges → CNF | `smoke` |
-| [3_budget_allocation](../course_5_advanced_algorithms_and_complexity/week_3_NP_complete_problems/3_budget_allocation) | 2 | [§3 · p. 9](../resources/course_5_assignments_week_3.pdf#page=9) | n m; A,b → CNF | `manual` |
+| [1_gsm_network](../course_5_advanced_algorithms_and_complexity/week_3_NP_complete_problems/1_gsm_network) | 2 | [§1 · p. 3](../resources/course_5_assignments_week_3.pdf#page=3) | n m; edges → CNF | `semantic` |
+| [2_cleaning_apartment](../course_5_advanced_algorithms_and_complexity/week_3_NP_complete_problems/2_cleaning_apartment) | 2 | [§2 · p. 6](../resources/course_5_assignments_week_3.pdf#page=6) | n m; edges → CNF | `semantic` |
+| [3_budget_allocation](../course_5_advanced_algorithms_and_complexity/week_3_NP_complete_problems/3_budget_allocation) | 2 | [§3 · p. 9](../resources/course_5_assignments_week_3.pdf#page=9) | n m; A,b → CNF | `semantic` |
 
 ### Week 4 — Coping with NP-completeness
 
 | Problem | Tests | PDF | Input → output | Check |
 | --- | ---: | --- | --- | --- |
-| [1_circuit_design](../course_5_advanced_algorithms_and_complexity/week_4_coping_with_NP_completeness/1_circuit_design) | 2 | [§1 · p. 3](../resources/course_5_assignments_week_4.pdf#page=3) | V C; clauses → SAT/UNSAT + assignment | `manual` |
+| [1_circuit_design](../course_5_advanced_algorithms_and_complexity/week_4_coping_with_NP_completeness/1_circuit_design) | 2 | [§1 · p. 3](../resources/course_5_assignments_week_4.pdf#page=3) | V C; clauses → SAT/UNSAT + assignment | `semantic` |
 | [2_plan_party](../course_5_advanced_algorithms_and_complexity/week_4_coping_with_NP_completeness/2_plan_party) | 3 | [§2 · p. 5](../resources/course_5_assignments_week_4.pdf#page=5) | n; f[]; tree edges → max fun | `normal` |
-| [3_school_bus](../course_5_advanced_algorithms_and_complexity/week_4_coping_with_NP_completeness/3_school_bus) | 2 | [§3 · p. 8](../resources/course_5_assignments_week_4.pdf#page=8) | n m; edges → min cost; tour | `manual` |
-| [4_reschedule_exams](../course_5_advanced_algorithms_and_complexity/week_4_coping_with_NP_completeness/4_reschedule_exams) | 4 | [§4 · p. 11](../resources/course_5_assignments_week_4.pdf#page=11) | n m; colors; edges → Impossible or colors | `manual` |
+| [3_school_bus](../course_5_advanced_algorithms_and_complexity/week_4_coping_with_NP_completeness/3_school_bus) | 2 | [§3 · p. 8](../resources/course_5_assignments_week_4.pdf#page=8) | n m; edges → min cost; tour | `semantic` |
+| [4_reschedule_exams](../course_5_advanced_algorithms_and_complexity/week_4_coping_with_NP_completeness/4_reschedule_exams) | 4 | [§4 · p. 11](../resources/course_5_assignments_week_4.pdf#page=11) | n m; colors; edges → Impossible or colors | `semantic` |
 
 ### Week 5 — Streaming algorithms
 
@@ -256,7 +256,7 @@ Fixture files are `test/N` plus `test/N.a`. Some are generated; see `docs/genera
 
 | Problem | Tests | PDF | Input → output | Check |
 | --- | ---: | --- | --- | --- |
-| [1_puzzle_assembly](../course_6_genome_assembly/week_2_assembling_the_phi_X174_using_de_bruijn_graphs/1_puzzle_assembly) | 2 | [§1 · p. 3](../resources/course_6_assignments_week_2.pdf#page=3) | 25 pieces → 5×5 placement | `manual` |
+| [1_puzzle_assembly](../course_6_genome_assembly/week_2_assembling_the_phi_X174_using_de_bruijn_graphs/1_puzzle_assembly) | 2 | [§1 · p. 3](../resources/course_6_assignments_week_2.pdf#page=3) | n² pieces → n×n placement | `semantic` |
 | [2_eulerian_cycle](../course_6_genome_assembly/week_2_assembling_the_phi_X174_using_de_bruijn_graphs/2_eulerian_cycle) | 5 | [§2 · p. 5](../resources/course_6_assignments_week_2.pdf#page=5) | n m; edges → 1 + cycle or 0 | `rotation` |
 | [3_k_universal_circular_string](../course_6_genome_assembly/week_2_assembling_the_phi_X174_using_de_bruijn_graphs/3_k_universal_circular_string) | 2 | [§3 · p. 8](../resources/course_6_assignments_week_2.pdf#page=8) | k → binary circular string | `semantic` |
 | [4_genome_assembler_from_its_kmer_composition](../course_6_genome_assembly/week_2_assembling_the_phi_X174_using_de_bruijn_graphs/4_genome_assembler_from_its_kmer_composition) | 2 | [§4 · p. 9](../resources/course_6_assignments_week_2.pdf#page=9) | k-mers[] → genome | `rotation` |
@@ -265,8 +265,8 @@ Fixture files are `test/N` plus `test/N.a`. Some are generated; see `docs/genera
 
 | Problem | Tests | PDF | Input → output | Check |
 | --- | ---: | --- | --- | --- |
-| [1_network_circulation](../course_6_genome_assembly/week_3_faces_real_sequencing_data/1_network_circulation) | 3 | [§1 · p. 3](../resources/course_6_assignments_week_3.pdf#page=3) | n m; (u,v,l,c)[] → YES + flows or NO | `manual` |
-| [2_optimal_kmer_size](../course_6_genome_assembly/week_3_faces_real_sequencing_data/2_optimal_kmer_size) | 1 | [§2 · p. 5](../resources/course_6_assignments_week_3.pdf#page=5) | reads[] → k | `manual` |
+| [1_network_circulation](../course_6_genome_assembly/week_3_faces_real_sequencing_data/1_network_circulation) | 3 | [§1 · p. 3](../resources/course_6_assignments_week_3.pdf#page=3) | n m; (u,v,l,c)[] → YES + flows or NO | `semantic` |
+| [2_optimal_kmer_size](../course_6_genome_assembly/week_3_faces_real_sequencing_data/2_optimal_kmer_size) | 1 | [§2 · p. 5](../resources/course_6_assignments_week_3.pdf#page=5) | reads[] → k | `semantic` |
 | [3_bubble_detection](../course_6_genome_assembly/week_3_faces_real_sequencing_data/3_bubble_detection) | 2 | [§3 · p. 7](../resources/course_6_assignments_week_3.pdf#page=7) | t; reads[] → bubble count | `normal` |
 | [4_tip_removal](../course_6_genome_assembly/week_3_faces_real_sequencing_data/4_tip_removal) | 4 | [§4 · p. 9](../resources/course_6_assignments_week_3.pdf#page=9) | reads[] → removed-edge count | `normal` |
 | [5_genome_error_prone_assembler](../course_6_genome_assembly/week_3_faces_real_sequencing_data/5_genome_error_prone_assembler) | 1 | [§5 · p. 11](../resources/course_6_assignments_week_3.pdf#page=11) | reads[] → genome | `rotation` |
@@ -274,32 +274,14 @@ Fixture files are `test/N` plus `test/N.a`. Some are generated; see `docs/genera
 
 ## Non-unique outputs
 
-These problems have more than one correct output. Semantic and order-insensitive checks validate content; rotation checks only cyclic shifts; smoke checks only exit status; `manual` rows still compare against one Go answer.
+These problems have more than one correct output. Every one now uses a semantic checker or an explicit comparison mode.
 
-**Semantic checker (4):** `5_longest_common_substring`, `2_order_of_courses`, `5_non_shared_substring`, `3_k_universal_circular_string`.
+**Semantic checker (21):** `5_collecting_signatures`, `6_maximum_number_of_prizes`, `2_primitive_calculator`, `1_make_heap`, `5_longest_common_substring`, `2_order_of_courses`, `5_non_shared_substring`, `4_suffix_tree_from_array`, `2_airline_crews`, `2_diet`, `3_ad_allocation`, `1_gsm_network`, `2_cleaning_apartment`, `3_budget_allocation`, `1_circuit_design`, `3_school_bus`, `4_reschedule_exams`, `1_puzzle_assembly`, `3_k_universal_circular_string`, `1_network_circulation`, `2_optimal_kmer_size`.
 
 **Order-insensitive (3):** `1_trie`, `4_suffix_tree`, `3_suffix_array_matching`.
 
 **Rotation-only (5):** `1_small_genome_assembler_error_free`, `2_small_genome_assembler_error_prone`, `2_eulerian_cycle`, `4_genome_assembler_from_its_kmer_composition`, `5_genome_error_prone_assembler`.
 
-**Smoke-only (3):** `4_suffix_tree_from_array`, `1_gsm_network`, `2_cleaning_apartment`.
-
-**No checker, one-answer compare (15):**
-
-- `course_1_algorithmic_toolbox/week_3_greedy_algorithms/5_collecting_signatures` — n, [l_i,r_i][] → k; k points
-- `course_1_algorithmic_toolbox/week_3_greedy_algorithms/6_maximum_number_of_prizes` — n → k; k distinct ints summing n
-- `course_1_algorithmic_toolbox/week_5_dynamic_programming_1/2_primitive_calculator` — n → k; sequence 1→n
-- `course_2_data_structures/week_2_priority_queues_and_disjoint_sets/1_make_heap` — n, a[] → m; m swap pairs
-- `course_3_algorithms_on_graphs/week_6_advanced_shortest_paths/5_travelling_salesman_problem` — n m; edges → min cost; tour
-- `course_5_advanced_algorithms_and_complexity/week_1_flows_in_networks/2_airline_crews` — n m; matrix → crew per flight
-- `course_5_advanced_algorithms_and_complexity/week_2_linear_programming/2_diet` — n m; A,b,c → status + x[]
-- `course_5_advanced_algorithms_and_complexity/week_2_linear_programming/3_ad_allocation` — p q; A,b,c → status + x[]
-- `course_5_advanced_algorithms_and_complexity/week_3_NP_complete_problems/3_budget_allocation` — n m; A,b → CNF
-- `course_5_advanced_algorithms_and_complexity/week_4_coping_with_NP_completeness/1_circuit_design` — V C; clauses → SAT/UNSAT + assignment
-- `course_5_advanced_algorithms_and_complexity/week_4_coping_with_NP_completeness/3_school_bus` — n m; edges → min cost; tour
-- `course_5_advanced_algorithms_and_complexity/week_4_coping_with_NP_completeness/4_reschedule_exams` — n m; colors; edges → Impossible or colors
-- `course_6_genome_assembly/week_2_assembling_the_phi_X174_using_de_bruijn_graphs/1_puzzle_assembly` — 25 pieces → 5×5 placement
-- `course_6_genome_assembly/week_3_faces_real_sequencing_data/1_network_circulation` — n m; (u,v,l,c)[] → YES + flows or NO
-- `course_6_genome_assembly/week_3_faces_real_sequencing_data/2_optimal_kmer_size` — reads[] → k
+**No checker gaps remain.** There are no `manual` rows.
 
 The final project is separate: the visible dataset uses a local coverage/NGA50 approximation of the Coursera grader, not an exact-output checker.

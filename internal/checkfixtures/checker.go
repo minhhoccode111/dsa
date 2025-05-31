@@ -9,10 +9,27 @@ import (
 type semanticChecker func(input, expected, output []byte) (bool, string)
 
 var problemCheckers = map[string]semanticChecker{
+	"course_1_algorithmic_toolbox/week_3_greedy_algorithms/5_collecting_signatures":                                checkCollectingSignatures,
+	"course_1_algorithmic_toolbox/week_3_greedy_algorithms/6_maximum_number_of_prizes":                             checkMaximumPrizes,
+	"course_1_algorithmic_toolbox/week_5_dynamic_programming_1/2_primitive_calculator":                             checkPrimitiveCalculator,
+	"course_2_data_structures/week_2_priority_queues_and_disjoint_sets/1_make_heap":                                checkMakeHeap,
 	"course_2_data_structures/week_3_hash_tables/5_longest_common_substring":                                       checkLongestCommonSubstring,
 	"course_3_algorithms_on_graphs/week_2_graph_decomposition2/2_order_of_courses":                                 checkTopologicalOrder,
 	"course_4_algorithms_on_strings/week_1_suffix_trees/5_non_shared_substring":                                    checkNonSharedSubstring,
+	"course_4_algorithms_on_strings/week_4_constructing_suffix_arrays_and_suffix_trees/4_suffix_tree_from_array":   checkSuffixTreeFromArray,
+	"course_5_advanced_algorithms_and_complexity/week_1_flows_in_networks/2_airline_crews":                         checkAirlineCrews,
+	"course_5_advanced_algorithms_and_complexity/week_2_linear_programming/2_diet":                                 checkDiet,
+	"course_5_advanced_algorithms_and_complexity/week_2_linear_programming/3_ad_allocation":                        checkAdAllocation,
+	"course_5_advanced_algorithms_and_complexity/week_3_NP_complete_problems/1_gsm_network":                        checkGSMNetwork,
+	"course_5_advanced_algorithms_and_complexity/week_3_NP_complete_problems/2_cleaning_apartment":                 checkCleaningApartment,
+	"course_5_advanced_algorithms_and_complexity/week_3_NP_complete_problems/3_budget_allocation":                  checkBudgetAllocation,
+	"course_5_advanced_algorithms_and_complexity/week_4_coping_with_NP_completeness/1_circuit_design":              checkCircuitDesign,
+	"course_5_advanced_algorithms_and_complexity/week_4_coping_with_NP_completeness/3_school_bus":                  checkSchoolBus,
+	"course_5_advanced_algorithms_and_complexity/week_4_coping_with_NP_completeness/4_reschedule_exams":            checkRescheduleExams,
+	"course_6_genome_assembly/week_2_assembling_the_phi_X174_using_de_bruijn_graphs/1_puzzle_assembly":             checkPuzzleAssembly,
 	"course_6_genome_assembly/week_2_assembling_the_phi_X174_using_de_bruijn_graphs/3_k_universal_circular_string": checkKUniversal,
+	"course_6_genome_assembly/week_3_faces_real_sequencing_data/1_network_circulation":                             checkNetworkCirculation,
+	"course_6_genome_assembly/week_3_faces_real_sequencing_data/2_optimal_kmer_size":                               checkOptimalKmerSize,
 }
 
 func checkerFor(rel string) semanticChecker {

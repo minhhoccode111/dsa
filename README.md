@@ -250,11 +250,11 @@ Use `-only <regexp>` to target one problem and `-max-new`, `-rounds`, `-batch`
 to change the effort. `internal/genfixtures/README.md` documents the pipeline.
 
 The runner compares whitespace-insensitively by default and allows a relative
-tolerance for floating-point tokens. Problems with non-unique outputs are listed
-explicitly in `internal/checkfixtures/modes.go`; they use rotation/set comparison
-or a smoke check, and smoke results are reported as `SKIP`, not `PASS`.
-`internal/checkfixtures/checker.go` adds semantic checks for topological order,
-binary de Bruijn cycles, non-shared substrings, and longest common substrings.
-The remaining smoke checks are `gsm_network`, `cleaning_apartment`, and
-`suffix_tree_from_array`. `internal/checkfixtures/README.md` documents the modes,
-checkers, and flags.
+tolerance for floating-point tokens. Problems with non-unique outputs use
+explicit comparison modes or semantic checkers in `internal/checkfixtures`.
+Checkers cover topological order, de Bruijn cycles, non-shared substrings,
+longest common substrings, greedy choices, heap swaps, matchings, LP objectives,
+SAT/CNF reductions, tours, colorings, puzzle placements, circulation, k-mer
+cycles, and suffix trees. `make fixtures` passes all 462 fixtures with no
+`SKIP`. `internal/checkfixtures/README.md` documents the modes, checkers, and
+flags.

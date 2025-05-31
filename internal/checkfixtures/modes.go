@@ -1,8 +1,8 @@
 package main
 
-// Problems whose outputs are not unique need either a semantic checker or a
-// smoke test. Keep explicit modes here so a mismatch is not silently treated as
-// a valid alternative.
+// Problems whose outputs are not unique need either a semantic checker or an
+// explicit comparison mode. Keep modes here so a mismatch is not silently
+// treated as a valid alternative.
 type compareMode int
 
 const (
@@ -18,9 +18,6 @@ var problemModes = map[string]compareMode{
 	"course_4_algorithms_on_strings/week_1_suffix_trees/1_trie":                                                                   modeUnorderedLines,
 	"course_4_algorithms_on_strings/week_1_suffix_trees/4_suffix_tree":                                                            modeUnorderedLines,
 	"course_4_algorithms_on_strings/week_4_constructing_suffix_arrays_and_suffix_trees/3_suffix_array_matching":                   modeUnorderedTokens,
-	"course_4_algorithms_on_strings/week_4_constructing_suffix_arrays_and_suffix_trees/4_suffix_tree_from_array":                  modeSmoke,
-	"course_5_advanced_algorithms_and_complexity/week_3_NP_complete_problems/1_gsm_network":                                       modeSmoke,
-	"course_5_advanced_algorithms_and_complexity/week_3_NP_complete_problems/2_cleaning_apartment":                                modeSmoke,
 	"course_6_genome_assembly/week_1_assembling_the_phi_X174_using_overlap_graphs/1_small_genome_assembler_error_free":            modeRotationLines,
 	"course_6_genome_assembly/week_1_assembling_the_phi_X174_using_overlap_graphs/2_small_genome_assembler_error_prone":           modeRotationLines,
 	"course_6_genome_assembly/week_2_assembling_the_phi_X174_using_de_bruijn_graphs/2_eulerian_cycle":                             modeRotationLines,
